@@ -5,6 +5,12 @@ parser][parser]**.
 
 [parser]: http://package.elm-lang.org/packages/elm-tools/parser/1.0.2/
 
+
+## How to use this library?
+
+We explain a simple use case where `Agenda`'s might be handy.  Also, take
+a look at the `demo` directory in this repository.
+
 Suppose you are writing a vector graphics program.  You want the user to
 be able to add a line segment
 
