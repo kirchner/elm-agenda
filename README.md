@@ -59,13 +59,15 @@ type alias Model =
     }
 ```
 
-When the user chooses to add a line, we set `selectedTool = Just
-lineTool`.  Then each time the user triggers a message our update
-function has to update `selectedTool` via `run tool msg`, which either
-returns a new Agenda `newAgenda` which we store by setting `selectedTool
-= Just newAgenda` in order to be ready for more user input, or it
-returns `Ok Line`, which we then can add to the set of lines and we
-set `selectedTool = Nothing`.
+When the user chooses to add a line, we set `selectedTool = Just lineTool`.
+Then each time the user triggers a message our update function has to update
+`selectedTool` via `run tool msg`, which either returns a new Agenda
+`newAgenda` which we store by setting `selectedTool = Just newAgenda` in order
+to be ready for more user input, or it returns `Ok (Just Line)`, so we can add
+the new line to our collection and set `selectedTool = Nothing`, or it returns
+`Ok Nothing` indicating that the given `msg` did not fit the current agenda, in
+which case we can either abort the whole tool or just continue with the last
+agenda.
 
 
 ## Credits and License
