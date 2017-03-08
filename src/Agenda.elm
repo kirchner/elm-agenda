@@ -318,7 +318,7 @@ zeroOrMoreUpdate exitMsg failureHandling list ((Agenda _ agenda) as oldAgenda) m
                 Nothing
 
 
-{-| Try all given agendas simultaniously.  Succeeds as soon as one of
+{-| Try all given agendas simultanously.  Succeeds as soon as one of
 them succeeds.  Fails if all agendas have failed.  Could be resource
 hungry since we do not exclusively switch to the first Agenda which
 succeeds after the first `run` iteration.
