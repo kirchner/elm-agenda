@@ -40,7 +40,7 @@ subscriptions model =
 type alias Model =
     { currentTime : Time
     , controlTime : Maybe Time
-    , combo : Agenda Step String
+    , combo : Agenda (List Description) Step String
     , successfullCombos : List String
     }
 
@@ -60,12 +60,16 @@ type Control
     | D
 
 
+type alias Description =
+    String
+
+
 type Step
     = Action Control
     | CoolDown Time
 
 
-action : Control -> Agenda Step ()
+action : Control -> Agenda Description Step ()
 action control =
     let
         update action =
@@ -79,12 +83,11 @@ action control =
                 _ ->
                     Nothing
     in
-        try
-            ("press " ++ (toString control))
-            update
+        describe (always ("press " ++ (toString control))) <|
+            try update
 
 
-coolDown : Time -> Time -> Agenda Step ()
+coolDown : Time -> Time -> Agenda Description Step ()
 coolDown coolDownTime duration =
     let
         update action =
@@ -101,38 +104,76 @@ coolDown coolDownTime duration =
                 _ ->
                     Nothing
     in
-        try
-            ("wait "
-                ++ (toString coolDownTime)
-                ++ " milliseconds and press the next control within "
-                ++ (toString duration)
-                ++ " milliseconds"
+        describe
+            (always
+                ("wait "
+                    ++ (toString coolDownTime)
+                    ++ " ms and press the next control within "
+                    ++ (toString duration)
+                    ++ " ms"
+                )
             )
-            update
+        <|
+            try update
 
 
-combo1 : Agenda Step String
+combo1 : Agenda Description Step String
 combo1 =
     succeed "combo1"
         |. action A
-        |. coolDown 1000 2000
-        |. action B
-        |. coolDown 2000 1000
-        |. action C
+        |.++ coolDown 1000 2000
+        |.++ action B
+        |.++ coolDown 2000 1000
+        |.++ action C
 
 
-combo2 : Agenda Step String
+combo2 : Agenda Description Step String
 combo2 =
     succeed "combo2"
         |. action B
 
 
-allCombos : Agenda Step String
+allCombos : Agenda (List Description) Step String
 allCombos =
-    oneOf
-        [ combo1
-        , combo2
-        ]
+    let
+        describer maybeDescriptions =
+            case maybeDescriptions of
+                Just descriptions ->
+                    [ "one of: "
+                        ++ (String.join "  or  " descriptions)
+                    ]
+
+                Nothing ->
+                    []
+    in
+        describe describer <|
+            oneOf
+                [ combo1
+                , combo2
+                ]
+
+
+{-| This is (|.) but also concatenates the descriptions.
+-}
+(|.++) : Agenda Description msg keep -> Agenda Description msg ignore -> Agenda Description msg keep
+(|.++) agendaKeep agendaIgnore =
+    let
+        descriptionIgnore =
+            Maybe.withDefault "" <| getDescription agendaIgnore
+
+        describer maybeDescription =
+            case maybeDescription of
+                Just description ->
+                    description
+                        ++ " and then "
+                        ++ descriptionIgnore
+
+                Nothing ->
+                    descriptionIgnore
+    in
+        describe describer <|
+            (|.) agendaKeep agendaIgnore
+infixl 5 |.++
 
 
 
@@ -211,11 +252,16 @@ view model =
             Html.button
                 [ Events.onClick <| Press control ]
                 [ Html.text (toString control) ]
+
+        description =
+            String.join " or " <|
+                Maybe.withDefault [] <|
+                    getDescription model.combo
     in
         Html.div []
             [ Html.div [] <|
                 List.map controlButton [ A, B, C, D ]
-            , Html.p [] [ Html.text <| getDescription model.combo ]
+            , Html.p [] [ Html.text description ]
             , Html.p []
                 [ Html.text <|
                     "time difference = "

@@ -21,68 +21,124 @@ type Action
     | WriteAll
 
 
-everyTool : Agenda Char Action
+type alias Description =
+    String
+
+
+everyTool : Agenda (List Description) Char Action
 everyTool =
-    oneOf [ qTool, wqTool, wallTool ]
+    let
+        describer maybeDescriptions =
+            case maybeDescriptions of
+                Just descriptions ->
+                    [ "one of: "
+                        ++ (String.join "  or  " descriptions)
+                    ]
+
+                Nothing ->
+                    []
+    in
+        describe describer <|
+            oneOf [ qTool, wqTool, wallTool ]
 
 
 {-| test for zeroOrMore
 -}
-listTool : FailureHandling -> Agenda Char (List Action)
+listTool : FailureHandling -> Agenda Description Char (List Action)
 listTool failureHandling =
-    zeroOrMore '^' failureHandling (tryChar 't' NoOp)
+    let
+        describer maybeDescription =
+            case maybeDescription of
+                Just description ->
+                    "zero or more of "
+                        ++ description
+                        ++ " untill '^'"
+
+                Nothing ->
+                    ""
+    in
+        describe describer <|
+            zeroOrMore '^' failureHandling (tryChar 't' NoOp)
 
 
 
 {- tools -}
 
 
-qTool : Agenda Char Action
+qTool : Agenda Description Char Action
 qTool =
     cmd <|
         tryChar 'q' Quit
 
 
-wqTool : Agenda Char Action
+wqTool : Agenda Description Char Action
 wqTool =
     cmd <|
         succeed (\_ result -> result)
             |= tryChar 'w' NoOp
-            |= tryChar 'q' WriteQuit
+            |=++ tryChar 'q' WriteQuit
 
 
-wallTool : Agenda Char Action
+wallTool : Agenda Description Char Action
 wallTool =
     cmd <|
         succeed (\_ _ _ result -> result)
             |= tryChar 'w' NoOp
-            |= tryChar 'a' NoOp
-            |= tryChar 'l' NoOp
-            |= tryChar 'l' WriteAll
+            |=++ tryChar 'a' NoOp
+            |=++ tryChar 'l' NoOp
+            |=++ tryChar 'l' WriteAll
 
 
 
 {- helpers -}
 
 
-cmd : Agenda Char Action -> Agenda Char Action
+{-| This is (|=) but also concatenates the descriptions.
+-}
+(|=++) : Agenda Description Char (a -> b) -> Agenda Description Char a -> Agenda Description Char b
+(|=++) agendaFunc agendaArg =
+    let
+        descriptionArg =
+            Maybe.withDefault "" <| getDescription agendaArg
+
+        describer maybeDescription =
+            case maybeDescription of
+                Just description ->
+                    description
+                        ++ " and then "
+                        ++ descriptionArg
+
+                Nothing ->
+                    descriptionArg
+    in
+        describe describer <|
+            (|=) agendaFunc agendaArg
+infixl 5 |=++
+
+
+cmd : Agenda Description Char Action -> Agenda Description Char Action
 cmd agenda =
     succeed (\_ result -> result)
         |= colon
-        |= agenda
+        |=++ agenda
 
 
-colon : Agenda Char Action
+colon : Agenda Description Char Action
 colon =
     tryChar ':' NoOp
 
 
-tryChar : Char -> Action -> Agenda Char Action
+tryChar : Char -> Action -> Agenda Description Char Action
 tryChar char action =
-    try (toString char)
-        (\c ->
-            if c == char then
-                Just (succeed action)
-            else
-                Nothing
-        )
+    let
+        describer =
+            always (toString char)
+    in
+        describe describer <|
+            try
+                (\c ->
+                    if c == char then
+                        Just (succeed action)
+                    else
+                        Nothing
+                )
