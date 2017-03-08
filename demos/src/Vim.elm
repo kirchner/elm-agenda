@@ -98,21 +98,11 @@ wallTool =
 (|=++) : Agenda Description Char (a -> b) -> Agenda Description Char a -> Agenda Description Char b
 (|=++) agendaFunc agendaArg =
     let
-        descriptionArg =
-            Maybe.withDefault "" <| getDescription agendaArg
-
-        describer maybeDescription =
-            case maybeDescription of
-                Just description ->
-                    description
-                        ++ " and then "
-                        ++ descriptionArg
-
-                Nothing ->
-                    descriptionArg
+        func maybeA maybeB =
+            Maybe.withDefault "" <|
+                Maybe.map2 (\a b -> a ++ " and then " ++ b) maybeA maybeB
     in
-        describe describer <|
-            (|=) agendaFunc agendaArg
+        (agendaFunc |=* func) agendaArg
 infixl 5 |=++
 
 

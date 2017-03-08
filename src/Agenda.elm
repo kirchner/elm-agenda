@@ -12,6 +12,8 @@ module Agenda
         , map2
         , (|=)
         , (|.)
+        , (|=*)
+        , (|.*)
         , zeroOrMore
         , FailureHandling
             ( Fail
@@ -28,7 +30,7 @@ module Agenda
 @docs Agenda, run, runs, describe, getDescription
 
 # Combining Agendas
-@docs succeed, fail, try, map, map2, (|=), (|.), zeroOrMore, FailureHandling, oneOf
+@docs succeed, fail, try, map, map2, (|=), (|.), (|=*), (|.*), zeroOrMore, FailureHandling, oneOf
 -}
 
 
@@ -223,6 +225,65 @@ pipelines][pp]**.  This operator ignores the value.
 (|.) agendaKeep agendaIgnore =
     map2 always agendaKeep agendaIgnore
 infixl 5 |.
+
+
+{-| Like `(|+)` but we can provide a way of combining the descriptions
+of the left and the right hand side.  You should probably use this to
+define your own operators for a concrete `description`.  E.g., suppose
+`description = String`, then you can define
+
+    (|=++) agendaFunc agendaArg = (agendaFunc |=* func) agendaArg
+
+where
+
+    func maybeA maybeB =
+        Maybe.withDefault "" <|
+            Maybe.map2 (\a b -> a ++ " and then " ++ b) maybeA maybeB
+
+Note that we cannot remove the parentheses around `agendaFunc |=* func`.
+Now if `getDescription foo === Just "foo"` and `getDescription bar ===
+Just "bar"`, we have
+
+    getDescription <|
+        succeed f
+            |= foo
+            |=++ bar
+
+    ===
+
+    Just "foo and then bar"
+-}
+(|=*) :
+    Agenda description msg (a -> b)
+    -> (Maybe description -> Maybe description -> description)
+    -> Agenda description msg a
+    -> Agenda description msg b
+(|=*) agendaFunc func agendaArg =
+    let
+        describer maybeDescription =
+            func maybeDescription (getDescription agendaArg)
+    in
+        describe describer <|
+            (|=) agendaFunc agendaArg
+infixl 5 |=*
+
+
+{-| Like `(|.)` but we can provide a way of combining the descriptions
+of the left and the right hand side.
+-}
+(|.*) :
+    Agenda description msg keep
+    -> (Maybe description -> Maybe description -> description)
+    -> Agenda description msg ignore
+    -> Agenda description msg keep
+(|.*) agendaKeep func agendaIgnore =
+    let
+        describer maybeDescription =
+            func maybeDescription (getDescription agendaIgnore)
+    in
+        describe describer <|
+            (|.) agendaKeep agendaIgnore
+infixl 5 |.*
 
 
 {-| Keep on repeating the given Agenda until the given exit `msg`

@@ -158,21 +158,11 @@ allCombos =
 (|.++) : Agenda Description msg keep -> Agenda Description msg ignore -> Agenda Description msg keep
 (|.++) agendaKeep agendaIgnore =
     let
-        descriptionIgnore =
-            Maybe.withDefault "" <| getDescription agendaIgnore
-
-        describer maybeDescription =
-            case maybeDescription of
-                Just description ->
-                    description
-                        ++ " and then "
-                        ++ descriptionIgnore
-
-                Nothing ->
-                    descriptionIgnore
+        func maybeA maybeB =
+            Maybe.withDefault "" <|
+                Maybe.map2 (\a b -> a ++ " and then " ++ b) maybeA maybeB
     in
-        describe describer <|
-            (|.) agendaKeep agendaIgnore
+        (agendaKeep |.* func) agendaIgnore
 infixl 5 |.++
 
 
