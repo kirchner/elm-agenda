@@ -51,7 +51,7 @@ listTool =
                     ""
     in
         describe describer <|
-            zeroOrMore '^' () (tryChar 't')
+            zeroOrMore '^' (tryChar 't')
 
 
 listChainTool : Agenda Description Char (List ()) Error
@@ -68,7 +68,7 @@ listChainTool =
                     ""
     in
         describe describer <|
-            zeroOrMore '^' () (tryChar 't' |.++ tryChar 'c')
+            zeroOrMore '^' (tryChar 't' |.++ tryChar 'c')
 
 
 

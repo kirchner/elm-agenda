@@ -23,6 +23,7 @@ module Agenda
         , (|.*)
         , oneOf
         , lazy
+        , andThen
         , zeroOrMore
         )
 
@@ -33,7 +34,7 @@ module Agenda
 @docs Agenda, Outcome, run, runs, describe, describeMap, getDescription
 
 # Combining Agendas
-@docs succeed, fail, try, map, map2, (|~), (|=), (|.), (|=*), (|.*), oneOf, lazy, zeroOrMore
+@docs succeed, fail, try, map, map2, (|~), (|=), (|.), (|=*), (|.*), oneOf, lazy, andThen, zeroOrMore
 -}
 
 
@@ -297,7 +298,9 @@ lazy thunk =
         )
 
 
-{-| -}
+{-| You can use this to define recursive agendas.  See the
+implementation of `zeroOrMore` for an example.
+-}
 andThen :
     (a -> Agenda s msg b err)
     -> Agenda s msg a err
@@ -324,10 +327,9 @@ with the terminating message before the current agenda is completed.
 -}
 zeroOrMore :
     msg
-    -> err
     -> Agenda s msg a err
     -> Agenda s msg (List a) err
-zeroOrMore termMsg err agenda =
+zeroOrMore termMsg agenda =
     let
         collect current rest =
             [ current ] ++ rest
@@ -349,7 +351,7 @@ zeroOrMore termMsg err agenda =
             (agenda
                 |> andThen
                     (\a ->
-                        collect a |~ zeroOrMore termMsg err agenda
+                        collect a |~ zeroOrMore termMsg agenda
                     )
             )
 
