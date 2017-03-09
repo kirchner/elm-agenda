@@ -51,7 +51,8 @@ listTool =
                     ""
     in
         describe describer <|
-            zeroOrMore '^' (tryChar 't')
+            describeMap String.concat <|
+                zeroOrMore '^' () (tryChar 't')
 
 
 listChainTool : Agenda Description Char (List ()) Error
@@ -68,7 +69,8 @@ listChainTool =
                     ""
     in
         describe describer <|
-            zeroOrMore '^' (tryChar 't' |.++ tryChar 'c')
+            describeMap String.concat <|
+                zeroOrMore '^' () (tryChar 't' |.++ tryChar 'c')
 
 
 

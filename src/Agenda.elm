@@ -7,6 +7,7 @@ module Agenda
             , Success
             )
         , describe
+        , describeMap
         , getDescription
         , run
         , runs
@@ -21,6 +22,7 @@ module Agenda
         , (|=*)
         , (|.*)
         , oneOf
+        , lazy
         , zeroOrMore
         )
 
@@ -28,10 +30,10 @@ module Agenda
 
 
 # Agendas
-@docs Agenda, Outcome, run, runs, describe, getDescription
+@docs Agenda, Outcome, run, runs, describe, describeMap, getDescription
 
 # Combining Agendas
-@docs succeed, fail, try, map, map2, (|~), (|=), (|.), (|=*), (|.*), FailureHandling, oneOf
+@docs succeed, fail, try, map, map2, (|~), (|=), (|.), (|=*), (|.*), oneOf, lazy, zeroOrMore
 -}
 
 
@@ -39,7 +41,7 @@ module Agenda
 wrong message, it fails with `err`.
 -}
 type Agenda s msg a err
-    = Agenda (Maybe s) (Maybe s -> msg -> Outcome s msg a err)
+    = Agenda (Maybe s) (msg -> Outcome s msg a err)
 
 
 {-| The possible outcome of an Agenda.
@@ -52,9 +54,37 @@ type Outcome s msg a err
 
 {-| Update the description of a given agenda.
 -}
-describe : (Maybe s -> s) -> Agenda s msg a err -> Agenda s msg a err
+describe : (Maybe s -> t) -> Agenda s msg a err -> Agenda t msg a err
 describe newDescriber (Agenda s cont) =
-    Agenda (Just (newDescriber s)) cont
+    Agenda (Just (newDescriber s))
+        (\msg ->
+            case cont msg of
+                Next nextAgenda ->
+                    Next <| describe newDescriber nextAgenda
+
+                Error err ->
+                    Error err
+
+                Success a ->
+                    Success a
+        )
+
+
+{-| -}
+describeMap : (s -> t) -> Agenda s msg a err -> Agenda t msg a err
+describeMap func (Agenda s cont) =
+    Agenda (Maybe.map func s)
+        (\msg ->
+            case cont msg of
+                Next nextAgenda ->
+                    Next <| describeMap func nextAgenda
+
+                Error err ->
+                    Error err
+
+                Success a ->
+                    Success a
+        )
 
 
 {-| Obtain the description of a given agenda.
@@ -70,7 +100,7 @@ an error, when the given `msg` was not suitable (`Error err`).
 -}
 run : Agenda s msg a err -> msg -> Outcome s msg a err
 run (Agenda s cont) msg =
-    cont s msg
+    cont msg
 
 
 {-| Run all `msg`'s in the list.
@@ -97,14 +127,14 @@ runs agenda0 msgs =
 -}
 succeed : a -> Agenda s msg a err
 succeed a =
-    Agenda Nothing (\_ _ -> Success a)
+    Agenda Nothing (\_ -> Success a)
 
 
 {-| An Agenda that always fails as `Error err`.
 -}
 fail : err -> Agenda s msg a err
 fail err =
-    Agenda Nothing (\_ _ -> Error err)
+    Agenda Nothing (\_ -> Error err)
 
 
 {-| An agenda that tries to generate an `a` using the provided function.
@@ -112,7 +142,7 @@ fail err =
 try : (msg -> Result err a) -> Agenda s msg a err
 try update =
     Agenda Nothing
-        (\s msg ->
+        (\msg ->
             case update msg of
                 Err err ->
                     Error err
@@ -127,8 +157,8 @@ try update =
 map : (a -> b) -> Agenda s msg a err -> Agenda s msg b err
 map func (Agenda s cont) =
     Agenda s
-        (\s msg ->
-            case cont s msg of
+        (\msg ->
+            case cont msg of
                 Next nextAgenda ->
                     Next <| map func nextAgenda
 
@@ -144,8 +174,8 @@ map func (Agenda s cont) =
 map2 : (a -> b -> c) -> Agenda s msg a err -> Agenda s msg b err -> Agenda s msg c err
 map2 func (Agenda sA contA) agendaB =
     Agenda sA
-        (\s msg ->
-            case contA s msg of
+        (\msg ->
+            case contA msg of
                 Next nextAgendaA ->
                     Next <| map2 func nextAgendaA agendaB
 
@@ -253,6 +283,20 @@ of the left and the right hand side.  Compare the documentation for
 infixl 5 |.*
 
 
+{-| You can use this to define recursive agendas.
+-}
+lazy : (() -> Agenda s msg a err) -> Agenda s msg a err
+lazy thunk =
+    Agenda Nothing
+        (\m ->
+            let
+                (Agenda _ cont) =
+                    thunk ()
+            in
+                cont m
+        )
+
+
 {-| Recursively concatenate the given agenda.  The agenda is terminated
 by the provided `msg`, one then obtains a `List a` consisting of all the
 successes of the provided agenda.  Note that this fails if you run it
@@ -260,76 +304,43 @@ with the terminating message before the current agenda is completed.
 -}
 zeroOrMore :
     msg
+    -> err
     -> Agenda s msg a err
-    -> Agenda s msg (List a) err
-zeroOrMore termMsg agenda =
-    {- TODO: this gives:  RangeError: Maximum clal stack size exceeded.
-       Maybe there is a way to implement lazy?
-
-          let
-              collect current rest =
-                  [ current ] ++ rest
-          in
-              collect
-                  |~ agenda
-                  |= (zeroOrMore termMsg agenda)
-    -}
-    zeroOrMoreIterator termMsg agenda []
-
-
-zeroOrMoreIterator :
-    msg
-    -> Agenda s msg a err
-    -> List a
-    -> Agenda s msg (List a) err
-zeroOrMoreIterator termMsg ((Agenda s cont) as agenda) collected =
+    -> Agenda (List s) msg (List a) err
+zeroOrMore termMsg err agenda =
     let
-        listCont s msg =
-            if msg == termMsg then
-                Success collected
-            else
-                case cont s msg of
-                    Next (Agenda sNext contNext) ->
-                        let
-                            collect current rest =
-                                collected ++ current ++ rest
+        collect current rest =
+            [ current ] ++ rest
 
-                            nextAgenda =
-                                Agenda sNext
-                                    (\s msg ->
-                                        case contNext s msg of
-                                            Next nextNextAgenda ->
-                                                Next <|
-                                                    map
-                                                        (\a -> [ a ])
-                                                        nextNextAgenda
-
-                                            Error err ->
-                                                Error err
-
-                                            Success a ->
-                                                Success [ a ]
-                                    )
-                        in
-                            Next <|
-                                (collect
-                                    |~ nextAgenda
-                                    |= zeroOrMore
-                                        termMsg
-                                        agenda
-                                )
-
-                    Error err ->
+        terminator =
+            Agenda Nothing
+                (\msg ->
+                    if msg == termMsg then
+                        Success []
+                    else
                         Error err
+                )
 
-                    Success a ->
-                        Next <|
-                            zeroOrMoreIterator
-                                termMsg
-                                agenda
-                                (collected ++ [ a ])
+        sList =
+            let
+                (Agenda maybeS _) =
+                    agenda
+            in
+                case maybeS of
+                    Just s ->
+                        [ s ]
+
+                    Nothing ->
+                        []
     in
-        Agenda s listCont
+        collect
+            |~ (describeMap (\s -> [ s ]) agenda)
+            |= (describeMap (\l -> sList ++ (List.concat l)) <|
+                    oneOf err
+                        [ lazy <| \_ -> zeroOrMore termMsg err agenda
+                        , terminator
+                        ]
+               )
 
 
 {-| Try all given agendas simultanously.  Succeeds as soon as one of
@@ -352,7 +363,7 @@ oneOf err agendas =
         descriptions =
             List.filterMap getDescription agendas
     in
-        Agenda (Just descriptions) <| (\s msg -> oneOfUpdate err agendas msg)
+        Agenda (Just descriptions) <| (\msg -> oneOfUpdate err agendas msg)
 
 
 oneOfUpdate :
