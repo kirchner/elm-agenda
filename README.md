@@ -26,23 +26,23 @@ its start and its end point.  We can implement such a tool as the
 following `Agenda`:
 
 ```elm
-lineTool : Agenda Msg Line
+lineTool : Agenda Msg Line Error
 lineTool =
-    succeed Line
-        |= inputPosition
+    Line
+        |~ inputPosition
         |= inputPosition
 
 
-inputPosition  : Agenda Msg Vec2
+inputPosition  : Agenda Msg Vec2 Error
 inputPosition =
     try "input position" <|
         \msg ->
             case msg of
                 InputPosition v ->
-                    Just <| succeed v
+                    Succees v
 
                 _ ->
-                    Nothing
+                    Error error
 
 
 type Msg
@@ -50,23 +50,23 @@ type Msg
     | InputPosition Vec2
 ```
 
-Then the model is given by
+with some suitable `Error` type. Then the model is given by
 
 ```elm
 type alias Model =
-    { selectedTool : Maybe (Agenda Msg Line)
+    { selectedTool : Maybe (Agenda Msg Line Error)
     , ...
     }
 ```
 
 When the user chooses to add a line, we set `selectedTool = Just lineTool`.
 Then each time the user triggers a message our update function has to update
-`selectedTool` via `run tool msg`, which either returns a new Agenda
-`newAgenda` which we store by setting `selectedTool = Just newAgenda` in order
-to be ready for more user input, or it returns `Ok (Just Line)`, so we can add
+`selectedTool` via `run tool msg`, which either returns a new Agenda via `Next
+newAgenda` which we store by setting `selectedTool = Just newAgenda` in order
+to be ready for more user input, or it returns `Success Line`, so we can add
 the new line to our collection and set `selectedTool = Nothing`, or it returns
-`Ok Nothing` indicating that the given `msg` did not fit the current agenda, in
-which case we can either abort the whole tool or just continue with the last
+`Error error` indicating that the given `msg` did not fit the current agenda,
+in which case we can either abort the whole tool or just continue with the last
 agenda.
 
 

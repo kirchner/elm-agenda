@@ -25,7 +25,11 @@ type alias Description =
     String
 
 
-everyTool : Agenda (List Description) Char Action
+type alias Error =
+    ()
+
+
+everyTool : Agenda (List Description) Char Action Error
 everyTool =
     let
         describer maybeDescriptions =
@@ -39,51 +43,53 @@ everyTool =
                     []
     in
         describe describer <|
-            oneOf [ qTool, wqTool, wallTool ]
+            oneOf () [ qTool, wqTool, wallTool ]
 
 
 {-| test for zeroOrMore
 -}
-listTool : FailureHandling -> Agenda Description Char (List Action)
-listTool failureHandling =
-    let
-        describer maybeDescription =
-            case maybeDescription of
-                Just description ->
-                    "zero or more of "
-                        ++ description
-                        ++ " untill '^'"
-
-                Nothing ->
-                    ""
-    in
-        describe describer <|
-            zeroOrMore '^' failureHandling (tryChar 't' NoOp)
 
 
 
+{-
+   listTool : FailureHandling -> Agenda Description Char (List Action)
+   listTool failureHandling =
+       let
+           describer maybeDescription =
+               case maybeDescription of
+                   Just description ->
+                       "zero or more of "
+                           ++ description
+                           ++ " untill '^'"
+
+                   Nothing ->
+                       ""
+       in
+           describe describer <|
+               zeroOrMore '^' failureHandling (tryChar 't' NoOp)
+-}
 {- tools -}
 
 
-qTool : Agenda Description Char Action
+qTool : Agenda Description Char Action Error
 qTool =
     cmd <|
         tryChar 'q' Quit
 
 
-wqTool : Agenda Description Char Action
+wqTool : Agenda Description Char Action Error
 wqTool =
     cmd <|
-        succeed (\_ result -> result)
-            |= tryChar 'w' NoOp
+        (\_ result -> result)
+            |~ tryChar 'w' NoOp
             |=++ tryChar 'q' WriteQuit
 
 
-wallTool : Agenda Description Char Action
+wallTool : Agenda Description Char Action Error
 wallTool =
     cmd <|
-        succeed (\_ _ _ result -> result)
-            |= tryChar 'w' NoOp
+        (\_ _ _ result -> result)
+            |~ tryChar 'w' NoOp
             |=++ tryChar 'a' NoOp
             |=++ tryChar 'l' NoOp
             |=++ tryChar 'l' WriteAll
@@ -95,7 +101,10 @@ wallTool =
 
 {-| This is (|=) but also concatenates the descriptions.
 -}
-(|=++) : Agenda Description Char (a -> b) -> Agenda Description Char a -> Agenda Description Char b
+(|=++) :
+    Agenda Description Char (a -> b) Error
+    -> Agenda Description Char a Error
+    -> Agenda Description Char b Error
 (|=++) agendaFunc agendaArg =
     let
         func maybeA maybeB =
@@ -106,19 +115,21 @@ wallTool =
 infixl 5 |=++
 
 
-cmd : Agenda Description Char Action -> Agenda Description Char Action
+cmd :
+    Agenda Description Char Action Error
+    -> Agenda Description Char Action Error
 cmd agenda =
-    succeed (\_ result -> result)
-        |= colon
+    (\_ result -> result)
+        |~ colon
         |=++ agenda
 
 
-colon : Agenda Description Char Action
+colon : Agenda Description Char Action Error
 colon =
     tryChar ':' NoOp
 
 
-tryChar : Char -> Action -> Agenda Description Char Action
+tryChar : Char -> Action -> Agenda Description Char Action Error
 tryChar char action =
     let
         describer =
@@ -128,7 +139,7 @@ tryChar char action =
             try
                 (\c ->
                     if c == char then
-                        Just (succeed action)
+                        Ok action
                     else
-                        Nothing
+                        Err ()
                 )
