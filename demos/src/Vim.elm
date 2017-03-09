@@ -3,17 +3,6 @@ module Vim exposing (..)
 import Agenda exposing (..)
 
 
-{-
-   q
-
-   wq
-
-   a
-
-   i
--}
-
-
 type Action
     = NoOp
     | Quit
@@ -48,51 +37,67 @@ everyTool =
 
 {-| test for zeroOrMore
 -}
+listTool : Agenda Description Char (List ()) Error
+listTool =
+    let
+        describer maybeDescription =
+            case maybeDescription of
+                Just description ->
+                    "zero or more of "
+                        ++ description
+                        ++ " untill '^'"
+
+                Nothing ->
+                    ""
+    in
+        describe describer <|
+            zeroOrMore '^' (tryChar 't')
+
+
+listChainTool : Agenda Description Char (List ()) Error
+listChainTool =
+    let
+        describer maybeDescription =
+            case maybeDescription of
+                Just description ->
+                    "zero or more of "
+                        ++ description
+                        ++ " untill '^'"
+
+                Nothing ->
+                    ""
+    in
+        describe describer <|
+            zeroOrMore '^' (tryChar 't' |.++ tryChar 'c')
 
 
 
-{-
-   listTool : FailureHandling -> Agenda Description Char (List Action)
-   listTool failureHandling =
-       let
-           describer maybeDescription =
-               case maybeDescription of
-                   Just description ->
-                       "zero or more of "
-                           ++ description
-                           ++ " untill '^'"
-
-                   Nothing ->
-                       ""
-       in
-           describe describer <|
-               zeroOrMore '^' failureHandling (tryChar 't' NoOp)
--}
 {- tools -}
 
 
 qTool : Agenda Description Char Action Error
 qTool =
-    cmd <|
-        tryChar 'q' Quit
+    cmd Quit <|
+        identity
+            |~ tryChar 'q'
 
 
 wqTool : Agenda Description Char Action Error
 wqTool =
-    cmd <|
-        (\_ result -> result)
-            |~ tryChar 'w' NoOp
-            |=++ tryChar 'q' WriteQuit
+    cmd WriteQuit <|
+        identity
+            |~ tryChar 'w'
+            |.++ tryChar 'q'
 
 
 wallTool : Agenda Description Char Action Error
 wallTool =
-    cmd <|
-        (\_ _ _ result -> result)
-            |~ tryChar 'w' NoOp
-            |=++ tryChar 'a' NoOp
-            |=++ tryChar 'l' NoOp
-            |=++ tryChar 'l' WriteAll
+    cmd WriteAll <|
+        identity
+            |~ tryChar 'w'
+            |.++ tryChar 'a'
+            |.++ tryChar 'l'
+            |.++ tryChar 'l'
 
 
 
@@ -101,45 +106,45 @@ wallTool =
 
 {-| This is (|=) but also concatenates the descriptions.
 -}
-(|=++) :
-    Agenda Description Char (a -> b) Error
-    -> Agenda Description Char a Error
-    -> Agenda Description Char b Error
-(|=++) agendaFunc agendaArg =
+(|.++) :
+    Agenda Description Char keep Error
+    -> Agenda Description Char ignore Error
+    -> Agenda Description Char keep Error
+(|.++) agendaKeep agendaIgnore =
     let
-        func maybeA maybeB =
+        combiner maybeA maybeB =
             Maybe.withDefault "" <|
                 Maybe.map2 (\a b -> a ++ " and then " ++ b) maybeA maybeB
     in
-        (agendaFunc |=* func) agendaArg
-infixl 5 |=++
+        (agendaKeep |.* combiner) agendaIgnore
+infixl 5 |.++
 
 
 cmd :
-    Agenda Description Char Action Error
+    Action
+    -> Agenda Description Char () Error
     -> Agenda Description Char Action Error
-cmd agenda =
-    (\_ result -> result)
+cmd action agenda =
+    always action
         |~ colon
-        |=++ agenda
+        |.++ agenda
 
 
-colon : Agenda Description Char Action Error
+colon : Agenda Description Char () Error
 colon =
-    tryChar ':' NoOp
+    tryChar ':'
 
 
-tryChar : Char -> Action -> Agenda Description Char Action Error
-tryChar char action =
+tryChar : Char -> Agenda Description Char () Error
+tryChar char =
     let
         describer =
             always (toString char)
+
+        cont c =
+            if c == char then
+                Ok ()
+            else
+                Err ()
     in
-        describe describer <|
-            try
-                (\c ->
-                    if c == char then
-                        Ok action
-                    else
-                        Err ()
-                )
+        describe describer <| try cont

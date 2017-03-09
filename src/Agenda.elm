@@ -20,12 +20,8 @@ module Agenda
         , (|.)
         , (|=*)
         , (|.*)
-        , FailureHandling
-            ( Fail
-            , Succeed
-            , Retry
-            )
         , oneOf
+        , zeroOrMore
         )
 
 {-|
@@ -257,15 +253,83 @@ of the left and the right hand side.  Compare the documentation for
 infixl 5 |.*
 
 
-{-| If one Agenda fails, do we let the whole Agenda `Fail` (and possibly
-loose the previous results), or do we `Succeed` with the list of results
-collected so far, or do we return the last agenda so the user can
-`Retry`?
+{-| Recursively concatenate the given agenda.  The agenda is terminated
+by the provided `msg`, one then obtains a `List a` consisting of all the
+successes of the provided agenda.  Note that this fails if you run it
+with the terminating message before the current agenda is completed.
 -}
-type FailureHandling
-    = Fail
-    | Succeed
-    | Retry
+zeroOrMore :
+    msg
+    -> Agenda s msg a err
+    -> Agenda s msg (List a) err
+zeroOrMore termMsg agenda =
+    {- TODO: this gives:  RangeError: Maximum clal stack size exceeded.
+       Maybe there is a way to implement lazy?
+
+          let
+              collect current rest =
+                  [ current ] ++ rest
+          in
+              collect
+                  |~ agenda
+                  |= (zeroOrMore termMsg agenda)
+    -}
+    zeroOrMoreIterator termMsg agenda []
+
+
+zeroOrMoreIterator :
+    msg
+    -> Agenda s msg a err
+    -> List a
+    -> Agenda s msg (List a) err
+zeroOrMoreIterator termMsg ((Agenda s cont) as agenda) collected =
+    let
+        listCont s msg =
+            if msg == termMsg then
+                Success collected
+            else
+                case cont s msg of
+                    Next (Agenda sNext contNext) ->
+                        let
+                            collect current rest =
+                                collected ++ current ++ rest
+
+                            nextAgenda =
+                                Agenda sNext
+                                    (\s msg ->
+                                        case contNext s msg of
+                                            Next nextNextAgenda ->
+                                                Next <|
+                                                    map
+                                                        (\a -> [ a ])
+                                                        nextNextAgenda
+
+                                            Error err ->
+                                                Error err
+
+                                            Success a ->
+                                                Success [ a ]
+                                    )
+                        in
+                            Next <|
+                                (collect
+                                    |~ nextAgenda
+                                    |= zeroOrMore
+                                        termMsg
+                                        agenda
+                                )
+
+                    Error err ->
+                        Error err
+
+                    Success a ->
+                        Next <|
+                            zeroOrMoreIterator
+                                termMsg
+                                agenda
+                                (collected ++ [ a ])
+    in
+        Agenda s listCont
 
 
 {-| Try all given agendas simultanously.  Succeeds as soon as one of
@@ -291,7 +355,11 @@ oneOf err agendas =
         Agenda (Just descriptions) <| (\s msg -> oneOfUpdate err agendas msg)
 
 
-oneOfUpdate : err -> List (Agenda s msg a err) -> msg -> Outcome (List s) msg a err
+oneOfUpdate :
+    err
+    -> List (Agenda s msg a err)
+    -> msg
+    -> Outcome (List s) msg a err
 oneOfUpdate err agendas msg =
     let
         outcomes =
