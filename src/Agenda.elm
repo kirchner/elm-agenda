@@ -297,6 +297,26 @@ lazy thunk =
         )
 
 
+{-| -}
+andThen :
+    (a -> Agenda s msg b err)
+    -> Agenda s msg a err
+    -> Agenda s msg b err
+andThen callback (Agenda s cont) =
+    Agenda s
+        (\msg ->
+            case cont msg of
+                Next nextAgenda ->
+                    Next (nextAgenda |> andThen callback)
+
+                Success a ->
+                    Next <| callback a
+
+                Error err ->
+                    Error err
+        )
+
+
 {-| Recursively concatenate the given agenda.  The agenda is terminated
 by the provided `msg`, one then obtains a `List a` consisting of all the
 successes of the provided agenda.  Note that this fails if you run it
@@ -306,41 +326,32 @@ zeroOrMore :
     msg
     -> err
     -> Agenda s msg a err
-    -> Agenda (List s) msg (List a) err
+    -> Agenda s msg (List a) err
 zeroOrMore termMsg err agenda =
     let
         collect current rest =
             [ current ] ++ rest
 
-        terminator =
-            Agenda Nothing
-                (\msg ->
-                    if msg == termMsg then
-                        Success []
-                    else
-                        Error err
-                )
-
-        sList =
+        parseTermMsg ag =
             let
-                (Agenda maybeS _) =
-                    agenda
+                (Agenda s cont) =
+                    ag
             in
-                case maybeS of
-                    Just s ->
-                        [ s ]
-
-                    Nothing ->
-                        []
+                Agenda s
+                    (\msg ->
+                        if msg == termMsg then
+                            Success []
+                        else
+                            cont msg
+                    )
     in
-        collect
-            |~ (describeMap (\s -> [ s ]) agenda)
-            |= (describeMap (\l -> sList ++ (List.concat l)) <|
-                    oneOf err
-                        [ lazy <| \_ -> zeroOrMore termMsg err agenda
-                        , terminator
-                        ]
-               )
+        parseTermMsg
+            (agenda
+                |> andThen
+                    (\a ->
+                        collect a |~ zeroOrMore termMsg err agenda
+                    )
+            )
 
 
 {-| Try all given agendas simultanously.  Succeeds as soon as one of
