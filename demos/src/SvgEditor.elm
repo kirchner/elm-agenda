@@ -89,42 +89,42 @@ type PathInstruction
 dToString : List PathInstruction -> String
 dToString =
     List.foldl
-        (\instruction d ->
+        (\instruction sum ->
             let
-                string =
+                next =
                     case instruction of
-                        Moveto dx dy ->
+                        Moveto x y ->
                             String.concat
-                                [ "m "
-                                , toString dx
+                                [ "M "
+                                , toString x
                                 , ", "
-                                , toString dy
+                                , toString y
                                 ]
 
-                        Lineto dx dy ->
+                        Lineto x y ->
                             String.concat
-                                [ "l "
-                                , toString dx
+                                [ "L "
+                                , toString x
                                 , ", "
-                                , toString dy
+                                , toString y
                                 ]
 
-                        QuadraticCurveto dcx dcy dx dy ->
+                        QuadraticCurveto cx cy x y ->
                             String.concat
-                                [ "q "
-                                , toString dcx
+                                [ "Q "
+                                , toString cx
                                 , ", "
-                                , toString dcy
+                                , toString cy
                                 , ", "
-                                , toString dx
+                                , toString x
                                 , ", "
-                                , toString dy
+                                , toString y
                                 ]
 
                         Closepath ->
-                            "z"
+                            "Z"
             in
-                string ++ " "
+                sum ++ " " ++ next
         )
         ""
 
@@ -161,6 +161,7 @@ type Msg
 
 type AMsg
     = InputPosition Mouse.Position
+    | Finish
 
 
 type alias Description =
@@ -193,6 +194,9 @@ inputPosition =
                 case msg of
                     InputPosition position ->
                         Ok (vec2 (toFloat position.x) (toFloat position.y))
+
+                    _ ->
+                        Err "you have to provide a position"
 
 
 addCircle : Agenda Description AMsg SvgElement Error
@@ -243,11 +247,8 @@ addRect =
 
 addOpenPath : Agenda Description AMsg SvgElement Error
 addOpenPath =
-    (\a b ->
+    (\a b cs ->
         let
-            cs =
-                []
-
             rest =
                 List.map (\c -> Lineto (getX c) (getY c)) cs
         in
@@ -258,12 +259,25 @@ addOpenPath =
                           , Lineto (getX b) (getY b)
                           ]
                         , rest
-                        , [ Closepath ]
                         ]
                 }
     )
         |~ inputPosition
         |=++ inputPosition
+        |=++
+            describe
+                ((Maybe.map
+                    (\description ->
+                        String.concat
+                            [ "zero or more of: "
+                            , description
+                            , " untill you press 'finish'"
+                            ]
+                    )
+                 )
+                    >> Maybe.withDefault ""
+                )
+                (zeroOrMore Finish inputPosition)
 
 
 
@@ -329,6 +343,9 @@ view model =
                     [ Html.onClick (InitTool addOpenPath) ]
                     [ Html.text "add (open) path" ]
                 , Html.text description
+                , Html.button
+                    [ Html.onClick (RunTool Finish) ]
+                    [ Html.text "finish" ]
                 ]
             , Html.div []
                 [ Svg.svg
@@ -386,6 +403,7 @@ drawSvgElement svgElement =
         Path info ->
             Svg.path
                 [ d (dToString info.d)
+                , fill "none"
                 , strokeWidth "1px"
                 , stroke "black"
                 ]
