@@ -1,4 +1,4 @@
-module SvgEditor exposing (main)
+module SvgEditor exposing (..)
 
 import Agenda exposing (..)
 import Json.Decode as Json
@@ -52,9 +52,16 @@ emptyModel =
 
 
 type SvgElement
-    = Circle CircleInfo
+    = Point PointInfo
+    | Circle CircleInfo
     | Rect RectInfo
     | Path PathInfo
+
+
+type alias PointInfo =
+    { cx : Float
+    , cy : Float
+    }
 
 
 type alias CircleInfo =
@@ -129,6 +136,49 @@ dToString =
         ""
 
 
+point : Vec2 -> PointInfo
+point v =
+    { cx = getX v
+    , cy = getY v
+    }
+
+
+pointToCircle : PointInfo -> Float -> CircleInfo
+pointToCircle pointInfo r =
+    { cx = pointInfo.cx
+    , cy = pointInfo.cy
+    , r = r
+    }
+
+
+pointToRect : PointInfo -> PointInfo -> RectInfo
+pointToRect pointInfoA pointInfoB =
+    let
+        ( x1, y1 ) =
+            ( pointInfoA.cx, pointInfoA.cy )
+
+        ( x2, y2 ) =
+            ( pointInfoB.cx, pointInfoB.cy )
+
+        ( x, width ) =
+            if x1 <= x2 then
+                ( x1, x2 - x1 )
+            else
+                ( x2, x1 - x2 )
+
+        ( y, height ) =
+            if y1 <= y2 then
+                ( y1, y2 - y1 )
+            else
+                ( y2, y1 - y2 )
+    in
+        { x = x
+        , y = y
+        , width = width
+        , height = height
+        }
+
+
 
 {- events -}
 
@@ -165,84 +215,104 @@ type AMsg
 
 
 type alias Description =
-    String
+    { instruction : String
+    , state : Maybe SvgElement
+    }
+
+
+emptyDescription =
+    { instruction = ""
+    , state = Nothing
+    }
 
 
 type alias Error =
     String
 
 
-(|=++) :
-    Agenda Description msg (a -> b) err
-    -> Agenda Description msg a err
-    -> Agenda Description msg b err
-(|=++) agendaFunc agendaArg =
-    let
-        func maybeA maybeB =
-            Maybe.withDefault "" <|
-                Maybe.map2 (\a b -> a ++ " and then " ++ b) maybeA maybeB
-    in
-        (agendaFunc |=* func) agendaArg
-infixl 5 |=++
-
-
 inputPosition : Agenda Description AMsg Vec2 Error
 inputPosition =
-    describe (\_ -> "provide a position") <|
-        try <|
-            \msg ->
-                case msg of
-                    InputPosition position ->
-                        Ok (vec2 (toFloat position.x) (toFloat position.y))
+    let
+        describer _ =
+            { instruction = "provide a position"
+            , state = Nothing
+            }
+    in
+        describe describer <|
+            try_ <|
+                \_ msg ->
+                    case msg of
+                        InputPosition position ->
+                            Success (vec2 (toFloat position.x) (toFloat position.y))
 
-                    _ ->
-                        Err "you have to provide a position"
+                        _ ->
+                            Error "you have to provide a position"
+
+
+savePoint :
+    PointInfo
+    -> Agenda Description msg a err
+    -> Agenda Description msg a err
+savePoint pointInfo =
+    let
+        describer maybeS =
+            case maybeS of
+                Just s ->
+                    { s | state = Just (Point pointInfo) }
+
+                Nothing ->
+                    { emptyDescription | state = Just (Point pointInfo) }
+    in
+        describe describer
+
+
+inputDistance : PointInfo -> Agenda Description AMsg Float Error
+inputDistance info =
+    let
+        describer _ =
+            { instruction = "provide a position"
+            , state = Just (Point info)
+            }
+    in
+        describe describer <|
+            try <|
+                \_ msg ->
+                    case msg of
+                        InputPosition position ->
+                            let
+                                v =
+                                    vec2 (toFloat position.x)
+                                        (toFloat position.y)
+
+                                w =
+                                    vec2 info.cx info.cy
+                            in
+                                Ok (length (v |> sub w))
+
+                        _ ->
+                            Err "you have to provide a position"
+
+
+addPoint : Agenda Description AMsg SvgElement Error
+addPoint =
+    Point
+        |~ (point |~ inputPosition)
 
 
 addCircle : Agenda Description AMsg SvgElement Error
 addCircle =
-    (\v w ->
-        Circle
-            { cx = getX v
-            , cy = getY v
-            , r = length (w |> sub v)
-            }
-    )
-        |~ inputPosition
-        |=++ inputPosition
+    Circle
+        |~ ((point |~ inputPosition)
+                |> andThenWith pointToCircle inputDistance
+           )
 
 
 addRect : Agenda Description AMsg SvgElement Error
 addRect =
-    (\v w ->
-        let
-            ( x1, y1 ) =
-                toTuple v
-
-            ( x2, y2 ) =
-                toTuple w
-
-            ( x, width ) =
-                if x1 <= x2 then
-                    ( x1, x2 - x1 )
-                else
-                    ( x2, x1 - x2 )
-
-            ( y, height ) =
-                if y1 <= y2 then
-                    ( y1, y2 - y1 )
-                else
-                    ( y2, y1 - y2 )
-        in
-            Rect
-                { x = x
-                , y = y
-                , width = width
-                , height = height
-                }
-    )
-        |~ inputPosition
-        |=++ inputPosition
+    Rect
+        |~ ((point |~ inputPosition)
+                |> andThenWith pointToRect ((flip savePoint) (point |~ inputPosition))
+           )
 
 
 addOpenPath : Agenda Description AMsg SvgElement Error
@@ -263,21 +333,8 @@ addOpenPath =
                 }
     )
         |~ inputPosition
-        |=++ inputPosition
-        |=++
-            describe
-                ((Maybe.map
-                    (\description ->
-                        String.concat
-                            [ "zero or more of: "
-                            , description
-                            , " untill you press 'finish'"
-                            ]
-                    )
-                 )
-                    >> Maybe.withDefault ""
-                )
-                (zeroOrMore Finish inputPosition)
+        |= inputPosition
+        |= zeroOrMore Finish inputPosition
 
 
 
@@ -329,11 +386,27 @@ view model =
         description =
             model.currentTool
                 |> Maybe.andThen getDescription
+                |> Maybe.map .instruction
                 |> Maybe.withDefault ""
+
+        state =
+            case
+                model.currentTool
+                    |> Maybe.andThen getDescription
+                    |> Maybe.andThen .state
+            of
+                Just svgElement ->
+                    [ drawSvgElement svgElement ]
+
+                Nothing ->
+                    []
     in
         Html.div []
             [ Html.div []
                 [ Html.button
+                    [ Html.onClick (InitTool addPoint) ]
+                    [ Html.text "add point" ]
+                , Html.button
                     [ Html.onClick (InitTool addCircle) ]
                     [ Html.text "add circle" ]
                 , Html.button
@@ -369,6 +442,7 @@ view model =
                         []
                     , Svg.g [] <|
                         List.map drawSvgElement model.svgElements
+                    , Svg.g [] state
                     ]
                 ]
             ]
@@ -377,6 +451,17 @@ view model =
 drawSvgElement : SvgElement -> Svg Msg
 drawSvgElement svgElement =
     case svgElement of
+        Point info ->
+            Svg.circle
+                [ cx (toString info.cx)
+                , cy (toString info.cy)
+                , r "1"
+                , fill "none"
+                , strokeWidth "1px"
+                , stroke "black"
+                ]
+                []
+
         Circle info ->
             Svg.circle
                 [ cx (toString info.cx)

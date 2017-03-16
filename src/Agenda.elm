@@ -13,6 +13,7 @@ module Agenda
         , runs
         , succeed
         , try
+        , try_
         , fail
         , map
         , map2
@@ -24,6 +25,7 @@ module Agenda
         , oneOf
         , lazy
         , andThen
+        , andThenWith
         , zeroOrMore
         )
 
@@ -42,7 +44,7 @@ module Agenda
 wrong message, it fails with `err`.
 -}
 type Agenda s msg a err
-    = Agenda (Maybe s) (msg -> Outcome s msg a err)
+    = Agenda (Maybe s) (Maybe s -> msg -> Outcome s msg a err)
 
 
 {-| The possible outcome of an Agenda.
@@ -58,8 +60,9 @@ type Outcome s msg a err
 describe : (Maybe s -> t) -> Agenda s msg a err -> Agenda t msg a err
 describe newDescriber (Agenda s cont) =
     Agenda (Just (newDescriber s))
-        (\msg ->
-            case cont msg of
+        (\_ msg ->
+            -- TODO: do we want this?
+            case cont s msg of
                 Next nextAgenda ->
                     Next <| describe newDescriber nextAgenda
 
@@ -75,8 +78,8 @@ describe newDescriber (Agenda s cont) =
 describeMap : (s -> t) -> Agenda s msg a err -> Agenda t msg a err
 describeMap func (Agenda s cont) =
     Agenda (Maybe.map func s)
-        (\msg ->
-            case cont msg of
+        (\_ msg ->
+            case cont s msg of
                 Next nextAgenda ->
                     Next <| describeMap func nextAgenda
 
@@ -101,7 +104,7 @@ an error, when the given `msg` was not suitable (`Error err`).
 -}
 run : Agenda s msg a err -> msg -> Outcome s msg a err
 run (Agenda s cont) msg =
-    cont msg
+    cont s msg
 
 
 {-| Run all `msg`'s in the list.
@@ -128,23 +131,23 @@ runs agenda0 msgs =
 -}
 succeed : a -> Agenda s msg a err
 succeed a =
-    Agenda Nothing (\_ -> Success a)
+    Agenda Nothing (\_ _ -> Success a)
 
 
 {-| An Agenda that always fails as `Error err`.
 -}
 fail : err -> Agenda s msg a err
 fail err =
-    Agenda Nothing (\_ -> Error err)
+    Agenda Nothing (\_ _ -> Error err)
 
 
 {-| An agenda that tries to generate an `a` using the provided function.
 -}
-try : (msg -> Result err a) -> Agenda s msg a err
+try : (Maybe s -> msg -> Result err a) -> Agenda s msg a err
 try update =
     Agenda Nothing
-        (\msg ->
-            case update msg of
+        (\s msg ->
+            case update s msg of
                 Err err ->
                     Error err
 
@@ -153,13 +156,18 @@ try update =
         )
 
 
+try_ : (Maybe s -> msg -> Outcome s msg a err) -> Agenda s msg a err
+try_ update =
+    Agenda Nothing update
+
+
 {-| Transform the result of an agenda.
 -}
 map : (a -> b) -> Agenda s msg a err -> Agenda s msg b err
 map func (Agenda s cont) =
     Agenda s
-        (\msg ->
-            case cont msg of
+        (\s msg ->
+            case cont s msg of
                 Next nextAgenda ->
                     Next <| map func nextAgenda
 
@@ -175,8 +183,8 @@ map func (Agenda s cont) =
 map2 : (a -> b -> c) -> Agenda s msg a err -> Agenda s msg b err -> Agenda s msg c err
 map2 func (Agenda sA contA) agendaB =
     Agenda sA
-        (\msg ->
-            case contA msg of
+        (\s msg ->
+            case contA s msg of
                 Next nextAgendaA ->
                     Next <| map2 func nextAgendaA agendaB
 
@@ -307,8 +315,8 @@ andThen :
     -> Agenda s msg b err
 andThen callback (Agenda s cont) =
     Agenda s
-        (\msg ->
-            case cont msg of
+        (\s msg ->
+            case cont s msg of
                 Next nextAgenda ->
                     Next (nextAgenda |> andThen callback)
 
@@ -318,6 +326,15 @@ andThen callback (Agenda s cont) =
                 Error err ->
                     Error err
         )
+
+
+andThenWith :
+    (a -> b -> c)
+    -> (a -> Agenda s msg b err)
+    -> Agenda s msg a err
+    -> Agenda s msg c err
+andThenWith func callback agendaArg =
+    agendaArg |> andThen (\arg -> (func arg) |~ (callback arg))
 
 
 {-| Recursively concatenate the given agenda.  The agenda is terminated
@@ -340,11 +357,11 @@ zeroOrMore termMsg agenda =
                     ag
             in
                 Agenda s
-                    (\msg ->
+                    (\s msg ->
                         if msg == termMsg then
                             Success []
                         else
-                            cont msg
+                            cont s msg
                     )
     in
         parseTermMsg
@@ -376,15 +393,16 @@ oneOf err agendas =
         descriptions =
             List.filterMap getDescription agendas
     in
-        Agenda (Just descriptions) <| (\msg -> oneOfUpdate err agendas msg)
+        Agenda (Just descriptions) <| (\_ msg -> oneOfUpdate err agendas descriptions msg)
 
 
 oneOfUpdate :
     err
     -> List (Agenda s msg a err)
+    -> List s
     -> msg
     -> Outcome (List s) msg a err
-oneOfUpdate err agendas msg =
+oneOfUpdate err agendas s msg =
     let
         outcomes =
             agendas |> List.map (flip run msg)
