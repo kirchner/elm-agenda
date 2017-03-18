@@ -179,6 +179,20 @@ pointToRect pointInfoA pointInfoB =
         }
 
 
+pointToPath : PointInfo -> PathInfo
+pointToPath pointInfo =
+    { d = [ Moveto pointInfo.cx pointInfo.cy ] }
+
+
+addPointToPath : PointInfo -> PathInfo -> PathInfo
+addPointToPath pointInfo pathInfo =
+    { pathInfo
+        | d =
+            List.append pathInfo.d
+                [ (Lineto pointInfo.cx pointInfo.cy) ]
+    }
+
+
 
 {- events -}
 
@@ -249,60 +263,73 @@ inputPosition =
                             Error "you have to provide a position"
 
 
+inputPoint : Agenda Description AMsg PointInfo Error
+inputPoint =
+    (point |~ inputPosition)
+
+
 savePoint :
-    PointInfo
+    Agenda Description msg a err
+    -> PointInfo
     -> Agenda Description msg a err
-    -> Agenda Description msg a err
-savePoint pointInfo =
+savePoint agenda pointInfo =
     let
         describer maybeS =
             case maybeS of
                 Just s ->
-                    { s | state = Just (Point pointInfo) }
+                    let
+                        newState =
+                            case s.state of
+                                Just (Point p) ->
+                                    Just <|
+                                        Path <|
+                                            addPointToPath pointInfo (pointToPath p)
+
+                                Just (Path pathInfo) ->
+                                    Just (Path (addPointToPath pointInfo pathInfo))
+
+                                _ ->
+                                    Just (Point pointInfo)
+                    in
+                        { s | state = newState }
 
                 Nothing ->
                     { emptyDescription | state = Just (Point pointInfo) }
     in
-        describe describer
+        describe describer agenda
 
 
 inputDistance : PointInfo -> Agenda Description AMsg Float Error
-inputDistance info =
-    let
-        describer _ =
-            { instruction = "provide a position"
-            , state = Just (Point info)
-            }
-    in
-        describe describer <|
-            try <|
-                \_ msg ->
-                    case msg of
-                        InputPosition position ->
-                            let
-                                v =
-                                    vec2 (toFloat position.x)
-                                        (toFloat position.y)
+inputDistance pointInfo =
+    (flip savePoint) pointInfo <|
+        try <|
+            \_ msg ->
+                case msg of
+                    InputPosition position ->
+                        let
+                            v =
+                                vec2 (toFloat position.x)
+                                    (toFloat position.y)
 
-                                w =
-                                    vec2 info.cx info.cy
-                            in
-                                Ok (length (v |> sub w))
+                            w =
+                                vec2 pointInfo.cx pointInfo.cy
+                        in
+                            Ok (length (v |> sub w))
 
-                        _ ->
-                            Err "you have to provide a position"
+                    _ ->
+                        Err "you have to provide a position"
 
 
 addPoint : Agenda Description AMsg SvgElement Error
 addPoint =
     Point
-        |~ (point |~ inputPosition)
+        |~ inputPoint
 
 
 addCircle : Agenda Description AMsg SvgElement Error
 addCircle =
     Circle
-        |~ ((point |~ inputPosition)
+        |~ (inputPoint
                 |> andThenWith pointToCircle inputDistance
            )
 
@@ -310,8 +337,8 @@ addCircle =
 addRect : Agenda Description AMsg SvgElement Error
 addRect =
     Rect
-        |~ ((point |~ inputPosition)
-                |> andThenWith pointToRect ((flip savePoint) (point |~ inputPosition))
+        |~ (inputPoint
+                |> andThenWith pointToRect (savePoint inputPoint)
            )
 
 
