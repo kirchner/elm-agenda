@@ -142,10 +142,15 @@ rect p q =
 
 
 path : Vec2 -> Vec2 -> List Vec2 -> Element
-path p q rest =
-    Path
-        { d =
-            [ Moveto (getX p) (getY p)
-            , Lineto (getX q) (getY q)
-            ]
-        }
+path p q rs =
+    let
+        rest =
+            List.map (\r -> Lineto (getX r) (getY r)) rs
+    in
+        Path
+            { d =
+                [ Moveto (getX p) (getY p)
+                , Lineto (getX q) (getY q)
+                ]
+                    ++ rest
+            }

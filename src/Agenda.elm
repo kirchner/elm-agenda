@@ -2,6 +2,8 @@ module Agenda
     exposing
         ( Agenda
         , result
+        , state
+        , setState
         , run
         , runs
         , try
@@ -15,6 +17,7 @@ module Agenda
         , (|=)
         , oneOf
         , zeroOrMore
+        , handleTermMsg
         )
 
 {-|
@@ -30,13 +33,13 @@ module Agenda
 {-| An `Agenda msg a` generates `a` over a sequence of `msg`'s. If fed the
 wrong message, it fails.
 -}
-type Agenda msg a
-    = Step (msg -> Agenda msg a)
+type Agenda s msg a
+    = Step (Maybe s) (msg -> Agenda s msg a)
     | Error
     | Result a
 
 
-result : Agenda msg a -> Maybe a
+result : Agenda s msg a -> Maybe a
 result agenda =
     case agenda of
         Result a ->
@@ -46,16 +49,36 @@ result agenda =
             Nothing
 
 
+state : Agenda s msg a -> Maybe s
+state agenda =
+    case agenda of
+        Step maybeState _ ->
+            maybeState
+
+        _ ->
+            Nothing
+
+
+setState : s -> Agenda s msg a -> Agenda s msg a
+setState state agenda =
+    case agenda of
+        Step _ step ->
+            Step (Just state) step
+
+        _ ->
+            agenda
+
+
 
 {- evaluation -}
 
 
 {-| Given a `msg` try to run the agenda.
 -}
-run : Agenda msg a -> msg -> Agenda msg a
+run : Agenda s msg a -> msg -> Agenda s msg a
 run agenda msg =
     case agenda of
-        Step step ->
+        Step _ step ->
             step msg
 
         Error ->
@@ -67,7 +90,7 @@ run agenda msg =
 
 {-| Run all `msg`'s in the list.
 -}
-runs : Agenda msg a -> List msg -> Agenda msg a
+runs : Agenda s msg a -> List msg -> Agenda s msg a
 runs agenda msgs =
     case msgs of
         [] ->
@@ -83,21 +106,21 @@ runs agenda msgs =
 
 {-| An agenda that tries to generate an `a` using the provided function.
 -}
-try : (msg -> Agenda msg a) -> Agenda msg a
+try : (msg -> Agenda s msg a) -> Agenda s msg a
 try step =
-    Step step
+    Step Nothing step
 
 
 {-| An Agenda that always fails.
 -}
-fail : Agenda msg a
+fail : Agenda s msg a
 fail =
     Error
 
 
 {-| An agenda that always succeeds.
 -}
-succeed : a -> Agenda msg a
+succeed : a -> Agenda s msg a
 succeed a =
     Result a
 
@@ -108,14 +131,14 @@ succeed a =
 
 {-| The monadic bind operator.  Similar to e.g. `Maybe.andThen`.
 -}
-(>>=) : Agenda msg a -> (a -> Agenda msg b) -> Agenda msg b
+(>>=) : Agenda s msg a -> (a -> Agenda s msg b) -> Agenda s msg b
 (>>=) arg callback =
     case arg of
-        Step step ->
+        Step _ step ->
             try <|
                 \msg ->
                     case step msg of
-                        Step nextStep ->
+                        Step _ nextStep ->
                             try nextStep >>= callback
 
                         Error ->
@@ -133,28 +156,28 @@ succeed a =
 
 {-| Monadic bind, which drops the left result.
 -}
-(>>>) : Agenda msg ignore -> Agenda msg keep -> Agenda msg keep
+(>>>) : Agenda s msg ignore -> Agenda s msg keep -> Agenda s msg keep
 (>>>) ignore keep =
     ignore >>= (\_ -> keep)
 
 
 {-| Monadic composition.
 -}
-(>=>) : (a -> Agenda msg b) -> (b -> Agenda msg c) -> (a -> Agenda msg c)
+(>=>) : (a -> Agenda s msg b) -> (b -> Agenda s msg c) -> (a -> Agenda s msg c)
 (>=>) f g =
     \a -> f a >>= g
 
 
 {-| Transform the result of an agenda.
 -}
-map : (a -> b) -> Agenda msg a -> Agenda msg b
+map : (a -> b) -> Agenda s msg a -> Agenda s msg b
 map func agenda =
     agenda >>= (\a -> succeed (func a))
 
 
 {-|
 -}
-map2 : (a -> b -> c) -> Agenda msg a -> Agenda msg b -> Agenda msg c
+map2 : (a -> b -> c) -> Agenda s msg a -> Agenda s msg b -> Agenda s msg c
 map2 func agendaA agendaB =
     agendaA
         >>= (\a ->
@@ -174,7 +197,7 @@ map2 func agendaA agendaB =
 
 [pp]: https://github.com/elm-tools/parser/blob/master/README.md#parser-pipeline
 -}
-(|=) : Agenda msg (a -> b) -> Agenda msg a -> Agenda msg b
+(|=) : Agenda s msg (a -> b) -> Agenda s msg a -> Agenda s msg b
 (|=) func arg =
     map2 apply func arg
 
@@ -193,7 +216,7 @@ them succeeds.  Fails if all agendas have failed.  Could be resource
 hungry since we do not exclusively switch to the first Agenda which
 succeeds after the first `run` iteration.
 -}
-oneOf : List (Agenda msg a) -> Agenda msg a
+oneOf : List (Agenda s msg a) -> Agenda s msg a
 oneOf agendas =
     let
         result =
@@ -225,7 +248,7 @@ oneOf agendas =
 
                             filter outcome =
                                 case outcome of
-                                    Step step ->
+                                    Step _ step ->
                                         Just (try step)
 
                                     _ ->
@@ -250,7 +273,7 @@ oneOf agendas =
 
 {-|
 -}
-zeroOrMore : msg -> Agenda msg a -> Agenda msg (List a)
+zeroOrMore : msg -> Agenda s msg a -> Agenda s msg (List a)
 zeroOrMore termMsg agenda =
     let
         collect current rest =
@@ -258,8 +281,8 @@ zeroOrMore termMsg agenda =
 
         parseTermMsg newAgenda =
             case newAgenda of
-                Step step ->
-                    Step <|
+                Step _ step ->
+                    try <|
                         \msg ->
                             if msg == termMsg then
                                 succeed []
@@ -277,3 +300,18 @@ zeroOrMore termMsg agenda =
                             (zeroOrMore termMsg agenda)
                     )
             )
+
+
+handleTermMsg : msg -> Agenda s msg (List a) -> Agenda s msg (List a)
+handleTermMsg termMsg newAgenda =
+    case newAgenda of
+        Step _ step ->
+            try <|
+                \msg ->
+                    if msg == termMsg then
+                        succeed []
+                    else
+                        step msg
+
+        _ ->
+            newAgenda

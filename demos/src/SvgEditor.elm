@@ -16,11 +16,13 @@ import Math.Vector2 exposing (..)
 {- internal -}
 
 import Agenda
+    exposing
+        ( state
+        , run
+        )
 import SvgAgenda
     exposing
         ( SvgAgenda
-        , eval
-        , run
         , addPoint
         , addCircle
         , addRect
@@ -67,7 +69,7 @@ subscriptions model =
 type alias Model =
     { svgElements : List Element
     , currentTool : Maybe SvgAgenda
-    , intermediateElement : Maybe Element
+    , currentState : Maybe Element
     }
 
 
@@ -75,7 +77,7 @@ emptyModel : Model
 emptyModel =
     { svgElements = []
     , currentTool = Nothing
-    , intermediateElement = Nothing
+    , currentState = Nothing
     }
 
 
@@ -122,29 +124,23 @@ update msg model =
                         nextTool =
                             run tool svgAgendaMsg
 
-                        ( intermediate, final ) =
-                            ( eval nextTool True
-                            , eval nextTool False
-                            )
-
-                        newIntermediateElement =
-                            Agenda.result intermediate
+                        newState =
+                            state nextTool
                     in
-                        case Agenda.result final of
+                        case Agenda.result nextTool of
                             Just svgElement ->
                                 { model
                                     | svgElements =
                                         svgElement :: model.svgElements
                                     , currentTool = Nothing
-                                    , intermediateElement = Nothing
+                                    , currentState = Nothing
                                 }
                                     ! []
 
                             Nothing ->
                                 { model
                                     | currentTool = Just nextTool
-                                    , intermediateElement =
-                                        newIntermediateElement
+                                    , currentState = newState
                                 }
                                     ! []
 
@@ -201,7 +197,7 @@ view model =
                     []
                 , Svg.g [] <|
                     List.map drawSvgElement model.svgElements
-                , model.intermediateElement
+                , model.currentState
                     |> Maybe.map drawSvgElement
                     |> Maybe.withDefault (Svg.g [] [])
                 ]

@@ -12,49 +12,23 @@ import SvgElements exposing (..)
 import Agenda
     exposing
         ( Agenda
+        , setState
         , (>>=)
         , (|=)
         , try
         , fail
         , succeed
-        , zeroOrMore
+        , map
+        , oneOf
+        , handleTermMsg
         )
-
-
-{- general -}
-
-
-type OAgenda msg a
-    = OAgenda (Bool -> Agenda msg a)
-
-
-eval : OAgenda msg a -> Bool -> Agenda msg a
-eval (OAgenda oAgenda) =
-    oAgenda
-
-
-run : OAgenda msg a -> msg -> OAgenda msg a
-run (OAgenda oAgenda) msg =
-    OAgenda <|
-        \echo -> Agenda.run (oAgenda echo) msg
-
-
-runs : OAgenda msg a -> List msg -> OAgenda msg a
-runs oAgenda msgs =
-    case msgs of
-        [] ->
-            oAgenda
-
-        msg :: rest ->
-            runs (run oAgenda msg) rest
-
 
 
 {- svg agenda -}
 
 
 type alias SvgAgenda =
-    OAgenda Msg Element
+    Agenda Element Msg Element
 
 
 type Msg
@@ -80,78 +54,74 @@ pos3 =
     Position { x = 20, y = 20 }
 
 
-return : Agenda Msg Element -> SvgAgenda
-return agenda =
-    OAgenda <|
-        \echo ->
-            if echo then
-                agenda >>= succeed
-            else
-                agenda
-
-
 
 {- all actual agendas -}
 
 
 addPoint : SvgAgenda
 addPoint =
-    return (succeed point |= position)
+    succeed point
+        |= position
 
 
 addCircle : SvgAgenda
 addCircle =
-    OAgenda <|
-        \echo ->
-            position
-                >>= (\p ->
-                        if echo then
-                            succeed (point p)
-                        else
-                            succeed (circle p)
-                                |= position
+    position
+        >>= (\p ->
+                setState
+                    (point p)
+                    (succeed (circle p)
+                        |= position
                     )
+            )
 
 
 addRect : SvgAgenda
 addRect =
-    OAgenda <|
-        \echo ->
-            position
-                >>= (\p ->
-                        if echo then
-                            succeed (point p)
-                        else
-                            succeed (rect p)
-                                |= position
+    position
+        >>= (\p ->
+                setState
+                    (point p)
+                    (succeed (rect p)
+                        |= position
                     )
+            )
 
 
 addOpenPath : SvgAgenda
 addOpenPath =
-    OAgenda <|
-        \echo ->
-            position
-                >>= (\p ->
-                        if echo then
-                            succeed (point p)
-                        else
-                            position
-                                >>= (\q ->
-                                        if echo then
-                                            succeed (path p q [])
-                                        else
-                                            succeed (path p q)
-                                                |= zeroOrMore Finish position
-                                    )
+    position
+        >>= (\p ->
+                setState
+                    (point p)
+                    (position
+                        >>= (\q ->
+                                succeed (path p q)
+                                    |= setState
+                                        (path p q [])
+                                        (openPathIterator p q [])
+                            )
                     )
+            )
+
+
+openPathIterator : Vec2 -> Vec2 -> List Vec2 -> Agenda Element Msg (List Vec2)
+openPathIterator p q rs =
+    setState (path p q rs)
+        (handleTermMsg Finish
+            (position
+                >>= (\r ->
+                        openPathIterator p q (rs ++ [ r ])
+                    )
+            )
+        )
 
 
 
 {- helpers -}
 
 
-position : Agenda Msg Vec2
+position : Agenda s Msg Vec2
 position =
     try <|
         \msg ->
@@ -163,7 +133,7 @@ position =
                     fail
 
 
-element : Agenda Msg Element
+element : Agenda s Msg Element
 element =
     try <|
         \msg ->
