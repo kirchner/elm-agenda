@@ -7,7 +7,7 @@ import Math.Vector2 exposing (..)
 
 {- internal -}
 
-import Svg exposing (..)
+import SvgElements exposing (..)
 import Agenda
     exposing
         ( Agenda
@@ -102,7 +102,7 @@ element =
 
 point : SvgAgenda Msg Element
 point =
-    return (succeed Svg.point |= position)
+    return (succeed SvgElements.point |= position)
 
 
 rect : SvgAgenda Msg Element
@@ -111,7 +111,7 @@ rect =
         \echo ->
             position
                 >>= echoPosition echo
-                        (\p -> succeed (Svg.rect p) |= position)
+                        (\p -> succeed (SvgElements.rect p) |= position)
 
 
 rect_ : SvgAgenda Msg Element
@@ -121,9 +121,9 @@ rect_ =
             position
                 >>= (\p ->
                         if echo then
-                            succeed (Svg.point p)
+                            succeed (SvgElements.point p)
                         else
-                            succeed (Svg.rect p)
+                            succeed (SvgElements.rect p)
                                 |= position
                     )
 
@@ -137,7 +137,7 @@ echoPosition :
     -> (Vec2 -> Agenda msg Element)
     -> (Vec2 -> Agenda msg Element)
 echoPosition =
-    echo (Svg.point)
+    echo (SvgElements.point)
 
 
 echo :

@@ -1,4 +1,4 @@
-module Svg exposing (..)
+module SvgElements exposing (..)
 
 import Math.Vector2 exposing (..)
 
