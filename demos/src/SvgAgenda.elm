@@ -17,6 +17,7 @@ import Agenda
         , try
         , fail
         , succeed
+        , zeroOrMore
         )
 
 
@@ -61,6 +62,22 @@ type Msg
     | Finish
     | Position Mouse.Position
     | Select Element
+
+
+
+{- for debugging -}
+
+
+pos1 =
+    Position { x = 0, y = 0 }
+
+
+pos2 =
+    Position { x = 10, y = 20 }
+
+
+pos3 =
+    Position { x = 20, y = 20 }
 
 
 return : Agenda Msg Element -> SvgAgenda
@@ -122,9 +139,10 @@ addOpenPath =
                             position
                                 >>= (\q ->
                                         if echo then
-                                            succeed (point q)
-                                        else
                                             succeed (path p q [])
+                                        else
+                                            succeed (path p q)
+                                                |= zeroOrMore Finish position
                                     )
                     )
 

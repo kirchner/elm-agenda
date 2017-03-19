@@ -14,6 +14,7 @@ module Agenda
         , map2
         , (|=)
         , oneOf
+        , zeroOrMore
         )
 
 {-|
@@ -22,7 +23,7 @@ module Agenda
 @docs Agenda, run, runs
 
 # Combining Agendas
-@docs try, fail, succeed, (>>=), (>>>), (>=>), map, map2, (|=), oneOf
+@docs try, fail, succeed, (>>=), (>>>), (>=>), map, map2, (|=), oneOf, zeroOrMore
 -}
 
 
@@ -245,3 +246,34 @@ oneOf agendas =
 
             Just a ->
                 succeed a
+
+
+{-|
+-}
+zeroOrMore : msg -> Agenda msg a -> Agenda msg (List a)
+zeroOrMore termMsg agenda =
+    let
+        collect current rest =
+            [ current ] ++ rest
+
+        parseTermMsg newAgenda =
+            case newAgenda of
+                Step step ->
+                    Step <|
+                        \msg ->
+                            if msg == termMsg then
+                                succeed []
+                            else
+                                step msg
+
+                _ ->
+                    newAgenda
+    in
+        parseTermMsg
+            (agenda
+                >>= (\a ->
+                        map
+                            (collect a)
+                            (zeroOrMore termMsg agenda)
+                    )
+            )
