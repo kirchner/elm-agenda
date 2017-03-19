@@ -1,6 +1,7 @@
 module Agenda
     exposing
         ( Agenda
+        , result
         , run
         , runs
         , try
@@ -32,6 +33,16 @@ type Agenda msg a
     = Step (msg -> Agenda msg a)
     | Error
     | Result a
+
+
+result : Agenda msg a -> Maybe a
+result agenda =
+    case agenda of
+        Result a ->
+            Just a
+
+        _ ->
+            Nothing
 
 
 

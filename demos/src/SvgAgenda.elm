@@ -3,6 +3,7 @@ module SvgAgenda exposing (..)
 {- external -}
 
 import Math.Vector2 exposing (..)
+import Mouse
 
 
 {- internal -}
@@ -19,24 +20,25 @@ import Agenda
         )
 
 
-{-| An `Agenda` which can output intermediate results.
--}
-type SvgAgenda msg a
-    = SvgAgenda (Bool -> Agenda msg a)
+{- general -}
 
 
-eval : SvgAgenda msg a -> Bool -> Agenda msg a
-eval (SvgAgenda oAgenda) =
+type OAgenda msg a
+    = OAgenda (Bool -> Agenda msg a)
+
+
+eval : OAgenda msg a -> Bool -> Agenda msg a
+eval (OAgenda oAgenda) =
     oAgenda
 
 
-run : SvgAgenda msg a -> msg -> SvgAgenda msg a
-run (SvgAgenda oAgenda) msg =
-    SvgAgenda <|
+run : OAgenda msg a -> msg -> OAgenda msg a
+run (OAgenda oAgenda) msg =
+    OAgenda <|
         \echo -> Agenda.run (oAgenda echo) msg
 
 
-runs : SvgAgenda msg a -> List msg -> SvgAgenda msg a
+runs : OAgenda msg a -> List msg -> OAgenda msg a
 runs oAgenda msgs =
     case msgs of
         [] ->
@@ -46,9 +48,24 @@ runs oAgenda msgs =
             runs (run oAgenda msg) rest
 
 
-return : Agenda msg Element -> SvgAgenda msg Element
+
+{- svg agenda -}
+
+
+type alias SvgAgenda =
+    OAgenda Msg Element
+
+
+type Msg
+    = NoOp
+    | Finish
+    | Position Mouse.Position
+    | Select Element
+
+
+return : Agenda Msg Element -> SvgAgenda
 return agenda =
-    SvgAgenda <|
+    OAgenda <|
         \echo ->
             if echo then
                 agenda >>= succeed
@@ -56,20 +73,64 @@ return agenda =
                 agenda
 
 
-type Msg
-    = NoOp
-    | Position Float Float
-    | Select Element
+
+{- all actual agendas -}
 
 
-pos1 : Msg
-pos1 =
-    Position 0 0
+addPoint : SvgAgenda
+addPoint =
+    return (succeed point |= position)
 
 
-pos2 : Msg
-pos2 =
-    Position 10 20
+addCircle : SvgAgenda
+addCircle =
+    OAgenda <|
+        \echo ->
+            position
+                >>= (\p ->
+                        if echo then
+                            succeed (point p)
+                        else
+                            succeed (circle p)
+                                |= position
+                    )
+
+
+addRect : SvgAgenda
+addRect =
+    OAgenda <|
+        \echo ->
+            position
+                >>= (\p ->
+                        if echo then
+                            succeed (point p)
+                        else
+                            succeed (rect p)
+                                |= position
+                    )
+
+
+addOpenPath : SvgAgenda
+addOpenPath =
+    OAgenda <|
+        \echo ->
+            position
+                >>= (\p ->
+                        if echo then
+                            succeed (point p)
+                        else
+                            position
+                                >>= (\q ->
+                                        if echo then
+                                            succeed (point q)
+                                        else
+                                            succeed (path p q [])
+                                    )
+                    )
+
+
+
+{- helpers -}
 
 
 position : Agenda Msg Vec2
@@ -77,8 +138,8 @@ position =
     try <|
         \msg ->
             case msg of
-                Position x y ->
-                    succeed (vec2 x y)
+                Position pos ->
+                    succeed (vec2 (toFloat pos.x) (toFloat pos.y))
 
                 _ ->
                     fail
@@ -94,60 +155,3 @@ element =
 
                 _ ->
                     fail
-
-
-
-{- all actual agendas -}
-
-
-point : SvgAgenda Msg Element
-point =
-    return (succeed SvgElements.point |= position)
-
-
-rect : SvgAgenda Msg Element
-rect =
-    SvgAgenda <|
-        \echo ->
-            position
-                >>= echoPosition echo
-                        (\p -> succeed (SvgElements.rect p) |= position)
-
-
-rect_ : SvgAgenda Msg Element
-rect_ =
-    SvgAgenda <|
-        \echo ->
-            position
-                >>= (\p ->
-                        if echo then
-                            succeed (SvgElements.point p)
-                        else
-                            succeed (SvgElements.rect p)
-                                |= position
-                    )
-
-
-
-{- helpers -}
-
-
-echoPosition :
-    Bool
-    -> (Vec2 -> Agenda msg Element)
-    -> (Vec2 -> Agenda msg Element)
-echoPosition =
-    echo (SvgElements.point)
-
-
-echo :
-    (a -> Element)
-    -> Bool
-    -> (a -> Agenda msg Element)
-    -> (a -> Agenda msg Element)
-echo func echo callback =
-    \a ->
-        if echo then
-            succeed (func a)
-        else
-            callback a

@@ -1,6 +1,7 @@
 module SvgEditor exposing (..)
 
-import Agenda exposing (..)
+{- external -}
+
 import Json.Decode as Json
 import Mouse
 import Html exposing (Html)
@@ -10,6 +11,31 @@ import Svg exposing (Svg)
 import Svg.Attributes exposing (..)
 import Svg.Events as Svg
 import Math.Vector2 exposing (..)
+
+
+{- internal -}
+
+import Agenda
+import SvgAgenda
+    exposing
+        ( SvgAgenda
+        , eval
+        , run
+        , addPoint
+        , addCircle
+        , addRect
+        , addOpenPath
+        )
+import SvgElements
+    exposing
+        ( Element
+            ( Point
+            , Circle
+            , Rect
+            , Path
+            )
+        , dToString
+        )
 
 
 main : Program Never Model Msg
@@ -39,8 +65,9 @@ subscriptions model =
 
 
 type alias Model =
-    { svgElements : List SvgElement
-    , currentTool : Maybe (Agenda Description AMsg SvgElement Error)
+    { svgElements : List Element
+    , currentTool : Maybe SvgAgenda
+    , intermediateElement : Maybe Element
     }
 
 
@@ -48,148 +75,7 @@ emptyModel : Model
 emptyModel =
     { svgElements = []
     , currentTool = Nothing
-    }
-
-
-type SvgElement
-    = Point PointInfo
-    | Circle CircleInfo
-    | Rect RectInfo
-    | Path PathInfo
-
-
-type alias PointInfo =
-    { cx : Float
-    , cy : Float
-    }
-
-
-type alias CircleInfo =
-    { cx : Float
-    , cy : Float
-    , r : Float
-    }
-
-
-type alias RectInfo =
-    { x : Float
-    , y : Float
-    , width : Float
-    , height : Float
-    }
-
-
-type alias PathInfo =
-    { d : List PathInstruction
-    }
-
-
-type PathInstruction
-    = Moveto Float Float
-    | Lineto Float Float
-    | QuadraticCurveto Float Float Float Float
-      --| CubicCurceto
-      --| Arcto
-    | Closepath
-
-
-dToString : List PathInstruction -> String
-dToString =
-    List.foldl
-        (\instruction sum ->
-            let
-                next =
-                    case instruction of
-                        Moveto x y ->
-                            String.concat
-                                [ "M "
-                                , toString x
-                                , ", "
-                                , toString y
-                                ]
-
-                        Lineto x y ->
-                            String.concat
-                                [ "L "
-                                , toString x
-                                , ", "
-                                , toString y
-                                ]
-
-                        QuadraticCurveto cx cy x y ->
-                            String.concat
-                                [ "Q "
-                                , toString cx
-                                , ", "
-                                , toString cy
-                                , ", "
-                                , toString x
-                                , ", "
-                                , toString y
-                                ]
-
-                        Closepath ->
-                            "Z"
-            in
-                sum ++ " " ++ next
-        )
-        ""
-
-
-point : Vec2 -> PointInfo
-point v =
-    { cx = getX v
-    , cy = getY v
-    }
-
-
-pointToCircle : PointInfo -> Float -> CircleInfo
-pointToCircle pointInfo r =
-    { cx = pointInfo.cx
-    , cy = pointInfo.cy
-    , r = r
-    }
-
-
-pointToRect : PointInfo -> PointInfo -> RectInfo
-pointToRect pointInfoA pointInfoB =
-    let
-        ( x1, y1 ) =
-            ( pointInfoA.cx, pointInfoA.cy )
-
-        ( x2, y2 ) =
-            ( pointInfoB.cx, pointInfoB.cy )
-
-        ( x, width ) =
-            if x1 <= x2 then
-                ( x1, x2 - x1 )
-            else
-                ( x2, x1 - x2 )
-
-        ( y, height ) =
-            if y1 <= y2 then
-                ( y1, y2 - y1 )
-            else
-                ( y2, y1 - y2 )
-    in
-        { x = x
-        , y = y
-        , width = width
-        , height = height
-        }
-
-
-pointToPath : PointInfo -> PathInfo
-pointToPath pointInfo =
-    { d = [ Moveto pointInfo.cx pointInfo.cy ] }
-
-
-addPointToPath : PointInfo -> PathInfo -> PathInfo
-addPointToPath pointInfo pathInfo =
-    { pathInfo
-        | d =
-            List.append pathInfo.d
-                [ (Lineto pointInfo.cx pointInfo.cy) ]
+    , intermediateElement = Nothing
     }
 
 
@@ -215,153 +101,8 @@ offsetPosition =
 
 type Msg
     = NoOp
-    | RunTool AMsg
-    | InitTool (Agenda Description AMsg SvgElement Error)
-
-
-
-{- agenda -}
-
-
-type AMsg
-    = InputPosition Mouse.Position
-    | Finish
-
-
-type alias Description =
-    { instruction : String
-    , state : Maybe SvgElement
-    }
-
-
-emptyDescription =
-    { instruction = ""
-    , state = Nothing
-    }
-
-
-type alias Error =
-    String
-
-
-inputPosition : Agenda Description AMsg Vec2 Error
-inputPosition =
-    let
-        describer _ =
-            { instruction = "provide a position"
-            , state = Nothing
-            }
-    in
-        describe describer <|
-            try_ <|
-                \_ msg ->
-                    case msg of
-                        InputPosition position ->
-                            Success (vec2 (toFloat position.x) (toFloat position.y))
-
-                        _ ->
-                            Error "you have to provide a position"
-
-
-inputPoint : Agenda Description AMsg PointInfo Error
-inputPoint =
-    (point |~ inputPosition)
-
-
-savePoint :
-    Agenda Description msg a err
-    -> PointInfo
-    -> Agenda Description msg a err
-savePoint agenda pointInfo =
-    let
-        describer maybeS =
-            case maybeS of
-                Just s ->
-                    let
-                        newState =
-                            case s.state of
-                                Just (Point p) ->
-                                    Just <|
-                                        Path <|
-                                            addPointToPath pointInfo (pointToPath p)
-
-                                Just (Path pathInfo) ->
-                                    Just (Path (addPointToPath pointInfo pathInfo))
-
-                                _ ->
-                                    Just (Point pointInfo)
-                    in
-                        { s | state = newState }
-
-                Nothing ->
-                    { emptyDescription | state = Just (Point pointInfo) }
-    in
-        describe describer agenda
-
-
-inputDistance : PointInfo -> Agenda Description AMsg Float Error
-inputDistance pointInfo =
-    (flip savePoint) pointInfo <|
-        try <|
-            \_ msg ->
-                case msg of
-                    InputPosition position ->
-                        let
-                            v =
-                                vec2 (toFloat position.x)
-                                    (toFloat position.y)
-
-                            w =
-                                vec2 pointInfo.cx pointInfo.cy
-                        in
-                            Ok (length (v |> sub w))
-
-                    _ ->
-                        Err "you have to provide a position"
-
-
-addPoint : Agenda Description AMsg SvgElement Error
-addPoint =
-    Point
-        |~ inputPoint
-
-
-addCircle : Agenda Description AMsg SvgElement Error
-addCircle =
-    Circle
-        |~ (inputPoint
-                |> andThenWith pointToCircle inputDistance
-           )
-
-
-addRect : Agenda Description AMsg SvgElement Error
-addRect =
-    Rect
-        |~ (inputPoint
-                |> andThenWith pointToRect (savePoint inputPoint)
-           )
-
-
-addOpenPath : Agenda Description AMsg SvgElement Error
-addOpenPath =
-    (\a b cs ->
-        let
-            rest =
-                List.map (\c -> Lineto (getX c) (getY c)) cs
-        in
-            Path
-                { d =
-                    List.concat
-                        [ [ Moveto (getX a) (getY a)
-                          , Lineto (getX b) (getY b)
-                          ]
-                        , rest
-                        ]
-                }
-    )
-        |~ inputPosition
-        |= inputPosition
-        |= zeroOrMore Finish inputPosition
+    | RunTool SvgAgenda.Msg
+    | InitTool SvgAgenda
 
 
 
@@ -374,25 +115,36 @@ update msg model =
         NoOp ->
             model ! []
 
-        RunTool amsg ->
+        RunTool svgAgendaMsg ->
             case model.currentTool of
                 Just tool ->
                     let
-                        outcome =
-                            run tool amsg
+                        nextTool =
+                            run tool svgAgendaMsg
+
+                        ( intermediate, final ) =
+                            ( eval nextTool True
+                            , eval nextTool False
+                            )
+
+                        newIntermediateElement =
+                            Agenda.result intermediate
                     in
-                        case outcome of
-                            Next tool ->
-                                { model | currentTool = Just tool } ! []
-
-                            Error err ->
-                                model ! []
-
-                            Success svgElement ->
+                        case Agenda.result final of
+                            Just svgElement ->
                                 { model
                                     | svgElements =
                                         svgElement :: model.svgElements
                                     , currentTool = Nothing
+                                    , intermediateElement = Nothing
+                                }
+                                    ! []
+
+                            Nothing ->
+                                { model
+                                    | currentTool = Just nextTool
+                                    , intermediateElement =
+                                        newIntermediateElement
                                 }
                                     ! []
 
@@ -409,73 +161,55 @@ update msg model =
 
 view : Model -> Html Msg
 view model =
-    let
-        description =
-            model.currentTool
-                |> Maybe.andThen getDescription
-                |> Maybe.map .instruction
-                |> Maybe.withDefault ""
-
-        state =
-            case
-                model.currentTool
-                    |> Maybe.andThen getDescription
-                    |> Maybe.andThen .state
-            of
-                Just svgElement ->
-                    [ drawSvgElement svgElement ]
-
-                Nothing ->
-                    []
-    in
-        Html.div []
-            [ Html.div []
-                [ Html.button
-                    [ Html.onClick (InitTool addPoint) ]
-                    [ Html.text "add point" ]
-                , Html.button
-                    [ Html.onClick (InitTool addCircle) ]
-                    [ Html.text "add circle" ]
-                , Html.button
-                    [ Html.onClick (InitTool addRect) ]
-                    [ Html.text "add rect" ]
-                , Html.button
-                    [ Html.onClick (InitTool addOpenPath) ]
-                    [ Html.text "add (open) path" ]
-                , Html.text description
-                , Html.button
-                    [ Html.onClick (RunTool Finish) ]
-                    [ Html.text "finish" ]
+    Html.div []
+        [ Html.div []
+            [ Html.button
+                [ Html.onClick (InitTool addPoint) ]
+                [ Html.text "add point" ]
+            , Html.button
+                [ Html.onClick (InitTool addCircle) ]
+                [ Html.text "add circle" ]
+            , Html.button
+                [ Html.onClick (InitTool addRect) ]
+                [ Html.text "add rect" ]
+            , Html.button
+                [ Html.onClick (InitTool addOpenPath) ]
+                [ Html.text "add (open) path" ]
+            , Html.button
+                [ Html.onClick (RunTool SvgAgenda.Finish) ]
+                [ Html.text "finish" ]
+            ]
+        , Html.div []
+            [ Svg.svg
+                [ width "600"
+                , height "400"
+                , viewBox "0 0 600 400"
+                , Html.style
+                    [ ( "width", "600" )
+                    , ( "height", "400" )
+                    , ( "background-color", "#fffe0" )
+                    ]
                 ]
-            , Html.div []
-                [ Svg.svg
-                    [ width "600"
-                    , height "400"
-                    , viewBox "0 0 600 400"
-                    , Html.style
-                        [ ( "width", "600" )
-                        , ( "height", "400" )
-                        , ( "background-color", "#fffe0" )
-                        ]
+                [ Svg.rect
+                    [ x "0"
+                    , y "0"
+                    , width "100%"
+                    , height "100%"
+                    , opacity "0"
+                    , onClickWithCoords (RunTool << SvgAgenda.Position)
                     ]
-                    [ Svg.rect
-                        [ x "0"
-                        , y "0"
-                        , width "100%"
-                        , height "100%"
-                        , opacity "0"
-                        , onClickWithCoords (RunTool << InputPosition)
-                        ]
-                        []
-                    , Svg.g [] <|
-                        List.map drawSvgElement model.svgElements
-                    , Svg.g [] state
-                    ]
+                    []
+                , Svg.g [] <|
+                    List.map drawSvgElement model.svgElements
+                , model.intermediateElement
+                    |> Maybe.map drawSvgElement
+                    |> Maybe.withDefault (Svg.g [] [])
                 ]
             ]
+        ]
 
 
-drawSvgElement : SvgElement -> Svg Msg
+drawSvgElement : Element -> Svg Msg
 drawSvgElement svgElement =
     case svgElement of
         Point info ->
