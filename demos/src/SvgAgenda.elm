@@ -35,8 +35,8 @@ type alias SvgAgenda =
 type Msg
     = NoOp
     | Finish
-    | Position Mouse.Position
-    | Select Element
+    | Position Vec2
+    | Select Element Vec2
 
 
 
@@ -44,15 +44,15 @@ type Msg
 
 
 pos1 =
-    Position { x = 0, y = 0 }
+    Position (vec2 0 0)
 
 
 pos2 =
-    Position { x = 10, y = 20 }
+    Position (vec2 10 20)
 
 
 pos3 =
-    Position { x = 20, y = 20 }
+    Position (vec2 20 20)
 
 
 
@@ -136,8 +136,8 @@ position =
     try <|
         \msg ->
             case msg of
-                Position pos ->
-                    succeed (vec2 (toFloat pos.x) (toFloat pos.y))
+                Position p ->
+                    succeed p
 
                 _ ->
                     fail
@@ -148,7 +148,7 @@ element =
     try <|
         \msg ->
             case msg of
-                Select element ->
+                Select element _ ->
                     succeed element
 
                 _ ->
