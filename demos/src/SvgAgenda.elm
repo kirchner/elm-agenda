@@ -14,6 +14,7 @@ import Agenda
         ( Agenda
         , setState
         , (>>=)
+        , andThenWithState
         , (|=)
         , try
         , fail
@@ -66,54 +67,63 @@ addPoint =
 
 addCircle : SvgAgenda
 addCircle =
-    position
-        >>= (\p ->
-                setState
-                    (point p)
-                    (succeed (circle p)
-                        |= position
-                    )
-            )
+    --alternative definition:
+    --
+    --position >>= (\p ->
+    --setState (point p)
+    --(succeed (circle p)
+    --    |= position))
+    let
+        p q =
+            position |> andThenWithState point q
+
+        q p =
+            succeed (circle p)
+                |= position
+    in
+        p q
 
 
 addRect : SvgAgenda
 addRect =
-    position
-        >>= (\p ->
-                setState
-                    (point p)
-                    (succeed (rect p)
-                        |= position
-                    )
-            )
+    let
+        p q =
+            position |> andThenWithState point q
+
+        q p =
+            succeed (rect p)
+                |= position
+    in
+        p q
 
 
 addOpenPath : SvgAgenda
 addOpenPath =
-    position
-        >>= (\p ->
-                setState
-                    (point p)
-                    (position
-                        >>= (\q ->
-                                succeed (path p q)
-                                    |= setState
-                                        (path p q [])
-                                        (openPathIterator p q [])
-                            )
-                    )
-            )
+    let
+        p q rs =
+            position |> andThenWithState point (q rs)
+
+        q rs p =
+            position |> andThenWithState (\q -> path p q []) (rs p)
+
+        rs p q =
+            succeed (\rs -> path p q rs)
+                |= openPathIterator p q []
+    in
+        p q rs
 
 
 openPathIterator : Vec2 -> Vec2 -> List Vec2 -> Agenda Element Msg (List Vec2)
 openPathIterator p q rs =
-    setState (path p q rs)
-        (handleTermMsg Finish
-            (position
-                >>= (\r ->
-                        openPathIterator p q (rs ++ [ r ])
-                    )
-            )
+    handleTermMsg Finish
+        (position
+            >>= (\r ->
+                    setState
+                        (path p q (rs ++ [ r ]))
+                        (openPathIterator p q (rs ++ [ r ])
+                            >>= (\newRS -> succeed (r :: newRS))
+                        )
+                )
         )
 
 
