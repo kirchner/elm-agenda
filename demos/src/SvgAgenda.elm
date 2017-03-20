@@ -21,7 +21,7 @@ import Agenda
         , succeed
         , map
         , oneOf
-        , handleTermMsg
+        , addSucceedMsg
         )
 
 
@@ -115,7 +115,7 @@ addOpenPath =
 
 openPathIterator : Vec2 -> Vec2 -> List Vec2 -> Agenda Element Msg (List Vec2)
 openPathIterator p q rs =
-    handleTermMsg Finish
+    addSucceedMsg Finish
         (position
             >>= (\r ->
                     setState
