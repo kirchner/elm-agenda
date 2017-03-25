@@ -3,7 +3,6 @@ module Agenda
         ( Agenda
         , result
         , state
-        , setState
         , run
         , runs
         , try
@@ -11,7 +10,7 @@ module Agenda
         , succeed
         , (>>=)
         , lazy
-        , andThenWithState
+        , tell
         , (>>>)
         , (>=>)
         , map
@@ -25,7 +24,7 @@ module Agenda
 {-|
 
 # Agendas
-@docs Agenda, run, runs, result, succeed, state, setState
+@docs Agenda, run, runs, result, succeed, state
 
 # Basic Agendas
 @docs try, fail, succeed
@@ -33,7 +32,7 @@ module Agenda
 # Combining Agendas
 
 ## Monadic Interface
-@docs (>>=), andThenWithState, (>>>), (>=>)
+@docs (>>=), (>>>), (>=>)
 
 ## Applicative Interface
 @docs map, map2, (|=)
@@ -49,7 +48,7 @@ wrong message, it fails.
 type Agenda s msg a
     = Step (Maybe s) (msg -> Agenda s msg a)
     | Error
-    | Result a
+    | Result (Maybe s) a
 
 
 {-| Return the result of an agenda, if possible.
@@ -57,7 +56,7 @@ type Agenda s msg a
 result : Agenda s msg a -> Maybe a
 result agenda =
     case agenda of
-        Result a ->
+        Result _ a ->
             Just a
 
         _ ->
@@ -69,23 +68,47 @@ result agenda =
 state : Agenda s msg a -> Maybe s
 state agenda =
     case agenda of
-        Step maybeState _ ->
-            maybeState
+        Step state _ ->
+            state
 
-        _ ->
+        Error ->
             Nothing
 
+        Result state _ ->
+            state
 
-{-| Update the state of an agenda.
+
+{-| Use this to update the state.
+
+    tell (Just state)
+        >>> agenda
 -}
-setState : s -> Agenda s msg a -> Agenda s msg a
-setState state agenda =
+tell : s -> Agenda s msg ()
+tell state =
+    setState (Just state) (succeed ())
+
+
+setState : Maybe s -> Agenda s msg a -> Agenda s msg a
+setState newState agenda =
     case agenda of
-        Step _ step ->
-            Step (Just state) step
+        Step oldState step ->
+            Step (oldState |> append newState) step
+
+        Result oldState a ->
+            Result (oldState |> append newState) a
 
         _ ->
             agenda
+
+
+append : Maybe s -> Maybe s -> Maybe s
+append right left =
+    case right of
+        Just _ ->
+            right
+
+        Nothing ->
+            left
 
 
 
@@ -97,13 +120,13 @@ setState state agenda =
 run : Agenda s msg a -> msg -> Agenda s msg a
 run agenda msg =
     case agenda of
-        Step _ step ->
+        Step state step ->
             step msg
 
         Error ->
             fail
 
-        Result a ->
+        Result _ a ->
             fail
 
 
@@ -141,7 +164,7 @@ fail =
 -}
 succeed : a -> Agenda s msg a
 succeed a =
-    Result a
+    Result Nothing a
 
 
 
@@ -153,38 +176,29 @@ succeed a =
 (>>=) : Agenda s msg a -> (a -> Agenda s msg b) -> Agenda s msg b
 (>>=) arg callback =
     case arg of
-        Step maybeState step ->
-            try <|
-                \msg ->
-                    case step msg of
-                        Step maybeNextState nextStep ->
-                            let
-                                updateState =
-                                    case maybeNextState of
-                                        Just nextState ->
-                                            setState nextState
+        Step state step ->
+            setState state <|
+                try <|
+                    \msg ->
+                        case step msg of
+                            Step nextState nextStep ->
+                                --(Step (state |> append nextState) nextStep)
+                                --    >>= callback
+                                --
+                                -- TODO: test this vvv, otherwise ^^^ ?
+                                setState nextState (try nextStep >>= callback)
 
-                                        Nothing ->
-                                            case maybeState of
-                                                Just state ->
-                                                    setState state
+                            Error ->
+                                fail
 
-                                                Nothing ->
-                                                    identity
-                            in
-                                updateState (try nextStep >>= callback)
-
-                        Error ->
-                            fail
-
-                        Result a ->
-                            callback a
+                            Result nextState a ->
+                                setState nextState (callback a)
 
         Error ->
             fail
 
-        Result a ->
-            callback a
+        Result state a ->
+            setState state (try (\msg -> run (callback a) msg))
 
 
 {-| This can be used to define recursive agendas. TODO: untested
@@ -192,49 +206,14 @@ succeed a =
 lazy : (() -> Agenda s msg a) -> Agenda s msg a
 lazy thunk =
     case thunk () of
-        Step maybeState step ->
-            try <|
-                \msg ->
-                    step msg
+        Step state step ->
+            setState state (try (\msg -> step msg))
 
         Error ->
             fail
 
-        Result a ->
-            succeed a
-
-
-{-| Like `(>>=)` but also applies the given state callback.
--}
-andThenWithState :
-    (a -> s)
-    -> (a -> Agenda s msg b)
-    -> Agenda s msg a
-    -> Agenda s msg b
-andThenWithState stateCallback agendaCallback agendaArg =
-    case agendaArg of
-        Step _ step ->
-            try <|
-                \msg ->
-                    case step msg of
-                        Step _ nextStep ->
-                            try nextStep >>= agendaCallback
-
-                        Error ->
-                            fail
-
-                        Result a ->
-                            setState
-                                (stateCallback a)
-                                (agendaCallback a)
-
-        Error ->
-            fail
-
-        Result a ->
-            setState
-                (stateCallback a)
-                (agendaCallback a)
+        Result state a ->
+            setState state (try (\msg -> succeed a))
 
 
 {-| Monadic bind, which drops the left result.
@@ -309,7 +288,7 @@ oneOf agendas =
             case result of
                 Nothing ->
                     case outcome of
-                        Result a ->
+                        Result _ a ->
                             Just a
 
                         _ ->
@@ -364,13 +343,15 @@ zeroOrMore termMsg agenda =
 
         parseTermMsg newAgenda =
             case newAgenda of
-                Step _ step ->
-                    try <|
-                        \msg ->
-                            if msg == termMsg then
-                                succeed []
-                            else
-                                step msg
+                Step state step ->
+                    setState state
+                        (try <|
+                            \msg ->
+                                if msg == termMsg then
+                                    succeed []
+                                else
+                                    step msg
+                        )
 
                 _ ->
                     newAgenda
@@ -396,7 +377,7 @@ addSucceedMsg succeedMsg newAgenda =
                 keepState =
                     case maybeState of
                         Just state ->
-                            setState state
+                            setState (Just state)
 
                         Nothing ->
                             identity

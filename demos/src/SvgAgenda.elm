@@ -12,9 +12,9 @@ import SvgElements exposing (..)
 import Agenda
     exposing
         ( Agenda
-        , setState
         , (>>=)
-        , andThenWithState
+        , (>>>)
+        , tell
         , (|=)
         , try
         , fail
@@ -61,56 +61,49 @@ pos3 =
 
 addPoint : SvgAgenda
 addPoint =
-    succeed point
-        |= position
+    position
+        >>= (\p ->
+                succeed (point p)
+            )
 
 
 addCircle : SvgAgenda
 addCircle =
-    --alternative definition:
-    --
-    --position >>= (\p ->
-    --setState (point p)
-    --(succeed (circle p)
-    --    |= position))
-    let
-        p q =
-            position |> andThenWithState point q
-
-        q p =
-            succeed (circle p)
-                |= position
-    in
-        p q
+    position
+        >>= (\p ->
+                tell (point p)
+                    >>> position
+                    >>= (\q ->
+                            succeed (circle p q)
+                        )
+            )
 
 
 addRect : SvgAgenda
 addRect =
-    let
-        p q =
-            position |> andThenWithState point q
-
-        q p =
-            succeed (rect p)
-                |= position
-    in
-        p q
+    position
+        >>= (\p ->
+                tell (point p)
+                    >>> position
+                    >>= (\q ->
+                            succeed (rect p q)
+                        )
+            )
 
 
 addOpenPath : SvgAgenda
 addOpenPath =
-    let
-        p q rs =
-            position |> andThenWithState point (q rs)
-
-        q rs p =
-            position |> andThenWithState (\q -> path p q []) (rs p)
-
-        rs p q =
-            succeed (\rs -> path p q rs)
-                |= openPathIterator p q []
-    in
-        p q rs
+    position
+        >>= (\p ->
+                tell (point p)
+                    >>> position
+                    >>= (\q ->
+                            tell (path p q [])
+                                >>> (succeed (\rs -> path p q rs)
+                                        |= openPathIterator p q []
+                                    )
+                        )
+            )
 
 
 openPathIterator : Vec2 -> Vec2 -> List Vec2 -> Agenda Element Msg (List Vec2)
@@ -118,11 +111,9 @@ openPathIterator p q rs =
     addSucceedMsg Finish
         (position
             >>= (\r ->
-                    setState
-                        (path p q (rs ++ [ r ]))
-                        (openPathIterator p q (rs ++ [ r ])
-                            >>= (\newRS -> succeed (r :: newRS))
-                        )
+                    tell (path p q (rs ++ [ r ]))
+                        >>> openPathIterator p q (rs ++ [ r ])
+                        >>= (\newRS -> succeed (r :: newRS))
                 )
         )
 
