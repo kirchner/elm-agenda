@@ -18,6 +18,7 @@ module Agenda
         , (|=)
         , oneOf
         , zeroOrMore
+        , zeroOrMoreWithState
         , addSucceedMsg
         )
 
@@ -333,41 +334,43 @@ oneOf agendas =
                 succeed a
 
 
-{-|
+{-| Repeat the given agenda untill the succeedMsg is sent.
 -}
 zeroOrMore : msg -> Agenda s msg a -> Agenda s msg (List a)
-zeroOrMore termMsg agenda =
-    let
-        collect current rest =
-            [ current ] ++ rest
+zeroOrMore succeedMsg agenda =
+    addSucceedMsg succeedMsg
+        (agenda
+            >>= \a ->
+                    zeroOrMore succeedMsg agenda
+                        >>= \rest ->
+                                succeed (a :: rest)
+        )
 
-        parseTermMsg newAgenda =
-            case newAgenda of
-                Step states step ->
-                    addStates states
-                        (try <|
-                            \msg ->
-                                if msg == termMsg then
-                                    succeed []
-                                else
-                                    step msg
-                        )
 
-                _ ->
-                    newAgenda
-    in
-        parseTermMsg
-            (agenda
-                >>= (\a ->
-                        map
-                            (collect a)
-                            (zeroOrMore termMsg agenda)
-                    )
-            )
+{-| Like `zeroOrMore` but you can also provide a way of adding something
+to the state stack.
+-}
+zeroOrMoreWithState :
+    msg
+    -> col
+    -> (col -> a -> s)
+    -> Agenda s msg a
+    -> Agenda s msg (List a)
+zeroOrMoreWithState succeedMsg col state agenda =
+    addSucceedMsg succeedMsg
+        (agenda
+            >>= \a ->
+                    tell (state col a)
+                        >>> zeroOrMoreWithState succeedMsg col state agenda
+                        >>= \rest ->
+                                succeed (a :: rest)
+        )
 
 
 {-| Modify the agenda, so that it succeeds with an empty list if run
-with the provided message.
+with the provided message.  You can use this to implement your own
+versions of `zeroOrMore`, to also be able to push something to the state
+stack.
 -}
 addSucceedMsg : msg -> Agenda s msg (List a) -> Agenda s msg (List a)
 addSucceedMsg succeedMsg newAgenda =
