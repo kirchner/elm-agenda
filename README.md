@@ -1,7 +1,8 @@
 # Agenda
 
 Convenient way of handling chains of user actions.  This is inspired by **[this
-parser][parser]**.
+parser][parser]**.  Note that this is still under development and the interface
+may change in the future.  All contritbutions welcome!  (especially more demos)
 
 [parser]: http://package.elm-lang.org/packages/elm-tools/parser/1.0.2/
 
@@ -26,23 +27,23 @@ its start and its end point.  We can implement such a tool as the
 following `Agenda`:
 
 ```elm
-lineTool : Agenda Msg Line Error
+lineTool : Agenda () Msg Line
 lineTool =
-    Line
-        |~ inputPosition
+    succeed Line
+        |= inputPosition
         |= inputPosition
 
 
-inputPosition  : Agenda Msg Vec2 Error
+inputPosition  : Agenda () Msg Vec2
 inputPosition =
-    try "input position" <|
+    try <|
         \msg ->
             case msg of
                 InputPosition v ->
-                    Succees v
+                    succeed v
 
                 _ ->
-                    Error error
+                    fail
 
 
 type Msg
@@ -50,24 +51,92 @@ type Msg
     | InputPosition Vec2
 ```
 
-with some suitable `Error` type. Then the model is given by
+Then the model is given by
 
 ```elm
 type alias Model =
-    { selectedTool : Maybe (Agenda Msg Line Error)
+    { selectedTool : Maybe (Agenda () Msg Line)
     , ...
     }
 ```
 
 When the user chooses to add a line, we set `selectedTool = Just lineTool`.
 Then each time the user triggers a message our update function has to update
-`selectedTool` via `run tool msg`, which either returns a new Agenda via `Next
-newAgenda` which we store by setting `selectedTool = Just newAgenda` in order
-to be ready for more user input, or it returns `Success Line`, so we can add
-the new line to our collection and set `selectedTool = Nothing`, or it returns
-`Error error` indicating that the given `msg` did not fit the current agenda,
-in which case we can either abort the whole tool or just continue with the last
-agenda.
+`selectedTool` via `run tool msg`, which returns a new Agenda say `newAgenda`.
+We then can check with `result` if we already have produced a new line which we
+then can add to our collection and set `selectedTool = Nothing`, and we can
+check with `error` whether our Agendas has failed, in which case we can either
+abort the whole tool or just continue with the previous agenda.  If none of
+this is the case we store the new Agenda with `selectedTool = Just newAgenda`
+in order to be ready for more user input.
+
+
+## Intermediate States and Monadic Interface
+
+Instead of using the applicative interface as above, we can also write an
+Agenda in the following way:
+
+```elm
+lineTool : Agenda () Msg Line
+lineTool =
+    inputPosition >>= \p ->
+    inputPosition >>= \q ->
+    succeed (Line p q)
+```
+
+The advantage is, that we can use already obtained values (like `p`) in the
+chain.  This becomes very usefull, if we want to add intermediate states, which
+can be retrieved even if the agenda has not produced a final result, yet.  For
+our `lineTool` this would be a `Point p` after the first `inputPosition`:
+
+```
+lineTool : Agenda Element Msg Element
+lineTool =
+    inputPosition >>= \p ->
+    tell (point p) >>>
+    inputPosition >>= \q ->
+    succeed (line p q)
+
+
+type Element
+    = Point PointInfo
+    | Line LineInfo
+
+
+point : Vec2 -> Element
+
+line : Vec2 -> Vec2 -> Element
+```
+
+If we call `tell`, we add the given state onto the state stack of the Agenda.
+This stack can then be retrieved at any time via `state : Agenda s msg a ->
+List s'`.  The SvgEditor and the GameControls demos make extensive use of this
+feature.
+
+Note, that if you are using `elm-format`, your Agendas will unfortunately not
+be formatted in a very desireable way:
+
+```elm
+lineTool : Agenda Element Msg Element
+lineTool =
+    inputPosition
+        >>= \p ->
+            tell (point p)
+                >>> inputPosition
+                >>= \q ->
+                    succeed (line p q)
+```
+
+which gets even worse if your chains get very long.
+
+
+## Demos
+
+We implemented some short working demos, to show how one could use this module:
+
+* `SvgAgenda`: draw svg graphics.
+* `Vim`: parsing vim-commands.
+* `GameControls`: an idea, how one could implemente combos in a game.
 
 
 ## Credits and License
