@@ -1,6 +1,7 @@
 module Agenda
     exposing
         ( Agenda
+        , error
         , result
         , state
         , run
@@ -25,7 +26,7 @@ module Agenda
 {-|
 
 # Agendas
-@docs Agenda, run, runs, result, succeed, state
+@docs Agenda, run, runs, error, result, succeed, state
 
 # Basic Agendas
 @docs try, fail, succeed
@@ -50,6 +51,18 @@ type Agenda s msg a
     = Step (List s) (msg -> Agenda s msg a)
     | Error
     | Result (List s) a
+
+
+{-| Return whether we ran into an error.
+-}
+error : Agenda s msg a -> Bool
+error agenda =
+    case agenda of
+        Error ->
+            True
+
+        _ ->
+            False
 
 
 {-| Return the result of an agenda, if possible.
@@ -281,57 +294,40 @@ succeeds after the first `run` iteration.
 -}
 oneOf : List (Agenda s msg a) -> Agenda s msg a
 oneOf agendas =
-    let
-        result =
-            agendas |> List.foldl collect Nothing
+    try <|
+        \msg ->
+            let
+                nextAgendas =
+                    agendas |> List.map handleOne
 
-        collect outcome result =
-            case result of
-                Nothing ->
-                    case outcome of
-                        Result _ a ->
-                            Just a
+                handleOne agenda =
+                    run agenda msg
 
-                        _ ->
+                liveAgendas =
+                    nextAgendas |> List.filterMap dropFailed
+
+                dropFailed agenda =
+                    case agenda of
+                        Error ->
                             Nothing
 
-                _ ->
-                    result
-    in
-        case result of
-            Nothing ->
-                try <|
-                    \msg ->
-                        let
-                            outcomes =
-                                agendas |> List.map (flip run msg)
+                        _ ->
+                            Just agenda
 
-                            liveAgendas =
-                                outcomes |> List.filterMap filter
+                states =
+                    liveAgendas
+                        |> List.map state
+                        |> List.concat
+            in
+                case liveAgendas of
+                    [] ->
+                        fail
 
-                            filter outcome =
-                                case outcome of
-                                    Step _ step ->
-                                        Just (try step)
+                    agenda :: [] ->
+                        agenda
 
-                                    _ ->
-                                        Nothing
-
-                            result =
-                                outcomes |> List.foldl collect Nothing
-                        in
-                            case result of
-                                Just a ->
-                                    succeed a
-
-                                Nothing ->
-                                    if List.isEmpty liveAgendas then
-                                        fail
-                                    else
-                                        oneOf liveAgendas
-
-            Just a ->
-                succeed a
+                    agenda :: rest ->
+                        addStates states (oneOf liveAgendas)
 
 
 {-| Repeat the given agenda untill the succeedMsg is sent.
