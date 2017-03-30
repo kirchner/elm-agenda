@@ -58,59 +58,38 @@ pos3 =
 
 addPoint : SvgAgenda
 addPoint =
-    position
-        >>= \p ->
-                succeed (point p)
+    position >>= \p ->
+    succeed (point p)
 
 
 addCircle : SvgAgenda
 addCircle =
-    position
-        >>= \p ->
-                tell (point p)
-                    >>> position
-                    >>= \q ->
-                            succeed (circle p q)
+    position >>= \p ->
+    tell (point p) >>>
+    position >>= \q ->
+    succeed (circle p q)
 
 
 addRect : SvgAgenda
 addRect =
-    position
-        >>= \p ->
-                tell (point p)
-                    >>> position
-                    >>= \q ->
-                            succeed (rect p q)
+    position >>= \p ->
+    tell (point p) >>>
+    position >>= \q ->
+    succeed (rect p q)
 
 
 addOpenPath : SvgAgenda
 addOpenPath =
-    {- TODO: we might want to format this like this:
-
-       position >>= \p ->
-       tell (point p) >>>
-       position >>= \q ->
-       tell (path p q []) >>>
-       zeroOrMoreWithState
-           Finish
-           ( p, q, [] )
-           (\( p, q, rs ) r -> path p q (rs ++ [ r ]))
-           position >>= \rs ->
-       succeed (path p q rs)
-    -}
-    position
-        >>= \p ->
-                tell (point p)
-                    >>> position
-                    >>= \q ->
-                            tell (path p q [])
-                                >>> zeroOrMoreWithState
-                                        Finish
-                                        ( p, q, [] )
-                                        (\( p, q, rs ) r -> path p q (rs ++ [ r ]))
-                                        position
-                                >>= \rs ->
-                                        succeed (path p q rs)
+    position >>= \p ->
+    tell (point p) >>>
+    position >>= \q ->
+    tell (path p q []) >>>
+    zeroOrMoreWithState
+        Finish
+        ( p, q, [] )
+        (\( p, q, rs ) r -> path p q (rs ++ [ r ]))
+        position >>= \rs ->
+    succeed (path p q rs)
 
 
 
