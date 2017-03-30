@@ -56,100 +56,90 @@ type Height
 
 
 type alias GameAgenda =
-    Agenda ( Action, ( Time, Maybe Time ) ) Msg Time
+    Agenda Action Msg ( Button, Time )
 
 
-initCombo : GameAgenda
-initCombo =
-    allCombos ( 0 * millisecond, Nothing )
-
-
-penalityTime =
-    2000 * millisecond
-
-
-allCombos : ( Time, Maybe Time ) -> GameAgenda
-allCombos info =
-    tell ( Waiting, info )
-        >>> oneOf
-                [ punch info
-                , lowPunch info
-                , kick info
-                , highKick info
-                ]
-
-
-punch : ( Time, Maybe Time ) -> GameAgenda
-punch ( coolDown, _ ) =
-    timedButton C (400 * millisecond) Nothing ( coolDown, Nothing )
-        >>= (\info ->
-                tell ( Punch Middle, info )
-                    >>> succeed (Tuple.first info)
-            )
-
-
-lowPunch : ( Time, Maybe Time ) -> GameAgenda
-lowPunch ( coolDown, _ ) =
-    timedButton A (2000 * millisecond) (Just (1000 * millisecond)) ( coolDown, Nothing )
-        >>= (\info ->
-                tell ( Duck, info )
-                    >>> timedButton C (1400 * millisecond) Nothing info
-                    >>= (\info ->
-                            tell ( Punch Low, info )
-                                >>> succeed (Tuple.first info)
-                        )
-            )
-
-
-kick : ( Time, Maybe Time ) -> GameAgenda
-kick ( coolDown, _ ) =
-    timedButton D (1000 * millisecond) Nothing ( coolDown, Nothing )
-        >>= (\info ->
-                tell ( Kick Middle, info )
-                    >>> succeed (Tuple.first info)
-            )
-
-
-highKick : ( Time, Maybe Time ) -> GameAgenda
-highKick ( coolDown, _ ) =
-    timedButton B (1000 * millisecond) (Just (800 * millisecond)) ( coolDown, Nothing )
-        >>= (\info ->
-                tell ( Jump, info )
-                    >>> timedButton D (600 * millisecond) Nothing info
-                    >>= (\info ->
-                            tell ( Kick High, info )
-                                >>> succeed (Tuple.first info)
-                        )
-            )
-
-
-timedButton :
-    Button
-    -> Time
-    -> Maybe Time
-    -> ( Time, Maybe Time )
-    -> Agenda ( Action, ( Time, Maybe Time ) ) Msg ( Time, Maybe Time )
-timedButton button nextCoolDown nextWindow ( coolDown, window ) =
+init : Agenda Action Msg ( Button, Time )
+init =
     try <|
-        \msg ->
-            case msg of
-                Press actualButton dt ->
-                    case window of
-                        Just window ->
-                            if
-                                (actualButton == button)
-                                    && (dt >= coolDown)
-                                    && (dt <= coolDown + window)
-                            then
-                                succeed ( nextCoolDown, nextWindow )
-                            else
-                                fail
+        \(Press button t) ->
+            succeed ( button, t ) >>=
+            allCombos
 
-                        Nothing ->
-                            if
-                                (actualButton == button)
-                                    && (dt >= coolDown)
-                            then
-                                succeed ( nextCoolDown, nextWindow )
-                            else
-                                fail
+
+allCombos : ( Button, Time ) -> Agenda Action Msg ( Button, Time )
+allCombos init =
+    oneOf
+        [ punch init
+        , lowPunch init
+        ]
+
+
+punch : ( Button, Time ) -> Agenda Action Msg ( Button, Time )
+punch init =
+    succeed init >>=
+    press C >>=
+    do (Punch Middle) >>=
+    wait (1000 * ms) >>=
+    allCombos
+
+
+lowPunch : ( Button, Time ) -> Agenda Action Msg ( Button, Time )
+lowPunch init =
+    succeed init >>=
+    press A >>=
+    do Duck >>=
+    timer (1000 * ms) (500 * ms) >>=
+    press C >>=
+    do (Punch Low) >>=
+    wait (1500 * ms) >>=
+    allCombos
+
+
+
+press : Button -> ( Button, Time ) -> Agenda Action Msg Time
+press button ( actualButton, t ) =
+    if actualButton == button then
+        succeed t
+    else
+        fail
+
+                    
+do : Action -> Time -> Agenda Action Msg Time
+do action t =
+    tell action >>>
+    succeed t
+
+
+timer : Time -> Time -> Time -> Agenda Action Msg ( Button, Time )
+timer coolDown window t1 =
+    try <|
+        \(Press button t2) ->
+            let
+                dt =
+                    t2 - t1
+            in
+                if
+                    (dt >= coolDown)
+                        && (dt <= coolDown + window)
+                then
+                    succeed ( button, t2 )
+                else
+                    fail
+
+
+wait : Time -> Time -> Agenda Action Msg ( Button, Time )
+wait coolDown t1 =
+    try <|
+        \(Press button t2) ->
+            let
+                dt =
+                    t2 - t1
+            in
+                if (dt >= coolDown) then
+                    succeed ( button, t2 )
+                else
+                    fail
+
+
+ms = millisecond

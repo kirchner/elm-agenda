@@ -10,6 +10,7 @@ module Agenda
         , fail
         , succeed
         , (>>=)
+        , andThen
         , lazy
         , tell
         , (>>>)
@@ -207,6 +208,11 @@ succeed a =
             addStates states (callback a)
 
 
+andThen : (a -> Agenda s msg b) -> Agenda s msg a -> Agenda s msg b
+andThen callback arg =
+    arg >>= callback
+
+
 {-| This can be used to define recursive agendas. TODO: untested
 -}
 lazy : (() -> Agenda s msg a) -> Agenda s msg a
@@ -286,40 +292,54 @@ succeeds after the first `run` iteration.
 -}
 oneOf : List (Agenda s msg a) -> Agenda s msg a
 oneOf agendas =
-    try <|
-        \msg ->
-            let
-                nextAgendas =
-                    agendas |> List.map handleOne
+    let
+        extractResult agenda coll =
+            case coll of
+                Just a ->
+                    Just a
 
-                handleOne agenda =
-                    run agenda msg
+                Nothing ->
+                    result agenda
+    in
+        case agendas |> List.foldl extractResult Nothing of
+            Just a ->
+                succeed a
 
-                liveAgendas =
-                    nextAgendas |> List.filterMap dropFailed
+            Nothing ->
+                try <|
+                    \msg ->
+                        let
+                            nextAgendas =
+                                agendas |> List.map handleOne
 
-                dropFailed agenda =
-                    case agenda of
-                        Error ->
-                            Nothing
+                            handleOne agenda =
+                                run agenda msg
 
-                        _ ->
-                            Just agenda
+                            liveAgendas =
+                                nextAgendas |> List.filterMap dropFailed
 
-                states =
-                    liveAgendas
-                        |> List.map state
-                        |> List.concat
-            in
-                case liveAgendas of
-                    [] ->
-                        fail
+                            dropFailed agenda =
+                                case agenda of
+                                    Error ->
+                                        Nothing
 
-                    agenda :: [] ->
-                        agenda
+                                    _ ->
+                                        Just agenda
 
-                    agenda :: rest ->
-                        addStates states (oneOf liveAgendas)
+                            states =
+                                liveAgendas
+                                    |> List.map state
+                                    |> List.concat
+                        in
+                            case liveAgendas of
+                                [] ->
+                                    fail
+
+                                agenda :: [] ->
+                                    agenda
+
+                                agenda :: rest ->
+                                    addStates states (oneOf liveAgendas)
 
 
 {-| Repeat the given agenda untill the succeedMsg is sent.
