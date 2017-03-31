@@ -29,7 +29,7 @@ module Agenda
 @docs Agenda, run, runs, error, result, succeed, state
 
 # Basic Agendas
-@docs try, fail, succeed
+@docs try, fail, succeed, tell
 
 # Combining Agendas
 
@@ -40,7 +40,7 @@ module Agenda
 @docs map, map2, (|=)
 
 ## Complex Agendas
-@docs oneOf, lazy, zeroOrMore, addSucceedMsg
+@docs oneOf, lazy, zeroOrMore, addSucceedMsg, zeroOrMoreWithState
 -}
 
 
@@ -198,15 +198,7 @@ succeed a =
             addStates states <|
                 try <|
                     \msg ->
-                        case step msg of
-                            Step states nextStep ->
-                                addStates states (try nextStep >>= callback)
-
-                            Error ->
-                                fail
-
-                            Result states a ->
-                                addStates states (callback a)
+                        step msg >>= callback
 
         Error ->
             fail
