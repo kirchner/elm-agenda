@@ -165,7 +165,7 @@ update msg model =
                             Nothing ->
                                 { model
                                     | currentTool = Just nextTool
-                                    , currentState = newState
+                                    , currentState = List.head newState
                                 }
                                     ! []
 
