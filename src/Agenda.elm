@@ -35,7 +35,7 @@ module Agenda
 # Combining Agendas
 
 ## Monadic Interface
-@docs (>>=), (>>>), (>=>)
+@docs (>>=), andThen, (>>>), (>=>)
 
 ## Applicative Interface
 @docs map, map2, (|=)
@@ -206,8 +206,12 @@ succeed a =
 
         Result states a ->
             addStates states (callback a)
+infixl 1 >>=
 
 
+{-| Monadic bind operator if you prefer to write `|> andThen`  instead
+of `>>=`.  (Note that the choice affects the (implicit) parenthesis.)
+-}
 andThen : (a -> Agenda s msg b) -> Agenda s msg a -> Agenda s msg b
 andThen callback arg =
     arg >>= callback
@@ -233,6 +237,7 @@ lazy thunk =
 (>>>) : Agenda s msg ignore -> Agenda s msg keep -> Agenda s msg keep
 (>>>) ignore keep =
     ignore >>= (\_ -> keep)
+infixl 1 >>>
 
 
 {-| Monadic composition.
@@ -240,6 +245,7 @@ lazy thunk =
 (>=>) : (a -> Agenda s msg b) -> (b -> Agenda s msg c) -> (a -> Agenda s msg c)
 (>=>) f g =
     \a -> f a >>= g
+infixl 1 >=>
 
 
 {-| Transform the result of an agenda.
@@ -293,53 +299,38 @@ succeeds after the first `run` iteration.
 oneOf : List (Agenda s msg a) -> Agenda s msg a
 oneOf agendas =
     let
-        extractResult agenda coll =
-            case coll of
-                Just a ->
-                    Just a
-
-                Nothing ->
-                    result agenda
+        states =
+            agendas
+                |> List.map state
+                |> List.concat
     in
-        case agendas |> List.foldl extractResult Nothing of
-            Just a ->
-                succeed a
+        addStates states <|
+            try <|
+                \msg ->
+                    let
+                        nextAgendas =
+                            agendas |> List.filterMap handleOne
 
-            Nothing ->
-                try <|
-                    \msg ->
-                        let
-                            nextAgendas =
-                                agendas |> List.map handleOne
+                        handleOne agenda =
+                            case agenda of
+                                Step states step ->
+                                    Just (step msg)
 
-                            handleOne agenda =
-                                run agenda msg
+                                Error ->
+                                    Nothing
 
-                            liveAgendas =
-                                nextAgendas |> List.filterMap dropFailed
+                                Result states a ->
+                                    Just (succeed a)
+                    in
+                        case nextAgendas of
+                            [] ->
+                                fail
 
-                            dropFailed agenda =
-                                case agenda of
-                                    Error ->
-                                        Nothing
+                            agenda :: [] ->
+                                agenda
 
-                                    _ ->
-                                        Just agenda
-
-                            states =
-                                liveAgendas
-                                    |> List.map state
-                                    |> List.concat
-                        in
-                            case liveAgendas of
-                                [] ->
-                                    fail
-
-                                agenda :: [] ->
-                                    agenda
-
-                                agenda :: rest ->
-                                    addStates states (oneOf liveAgendas)
+                            _ ->
+                                oneOf nextAgendas
 
 
 {-| Repeat the given agenda untill the succeedMsg is sent.
