@@ -52,14 +52,14 @@ type alias Model =
     { currentTime : Time
     , controlTime : Maybe Time
     , combo : GameAgenda
-    , successfullCombos : List (List Action)
+    , successfullCombos : List (List Info)
     }
 
 
 defaultModel =
     { currentTime = 0 * millisecond
     , controlTime = Nothing
-    , combo = allCombos ( 0 * millisecond, Nothing )
+    , combo = allCombos
     , successfullCombos = []
     }
 
@@ -85,21 +85,16 @@ update msg model =
 
         Controller button ->
             let
-                dt =
-                    model.controlTime
-                        |> Maybe.map (\t -> model.currentTime - t)
-                        |> Maybe.withDefault (0 * millisecond)
-
                 nextCombo =
-                    run model.combo (Press button dt)
+                    run model.combo (Press button model.currentTime)
             in
                 case result nextCombo of
-                    Just coolDown ->
+                    Just _ ->
                         { model
-                            | combo = allCombos ( coolDown, Nothing )
+                            | combo = allCombos
                             , controlTime = Just model.currentTime
                             , successfullCombos =
-                                (List.map Tuple.first (state nextCombo))
+                                (state nextCombo)
                                     :: model.successfullCombos
                         }
                             ! []
@@ -107,7 +102,7 @@ update msg model =
                     Nothing ->
                         if error nextCombo then
                             { model
-                                | combo = allCombos ( penalityTime, Nothing )
+                                | combo = allCombos
                                 , controlTime = Just model.currentTime
                             }
                                 ! []
@@ -146,15 +141,26 @@ view model =
             , coolDownInfo model
             , Html.h2 []
                 [ Html.text "current combo" ]
-            , Html.p []
-                [ Html.text (toString (state model.combo)) ]
+            , viewStates (state model.combo)
             , Html.h2 []
                 [ Html.text "successfull combos" ]
             , viewCombos model.successfullCombos
             ]
 
 
-viewCombos : List (List Action) -> Html msg
+viewStates : List Info -> Html msg
+viewStates states =
+    let
+        viewState state =
+            Html.li []
+                [ Html.text (toString state) ]
+    in
+        states
+            |> List.map viewState
+            |> Html.ul []
+
+
+viewCombos : List (List Info) -> Html msg
 viewCombos combos =
     let
         viewCombo combo =
@@ -173,19 +179,25 @@ coolDownInfo model =
                     model.currentTime - ctrlTime
             in
                 case state model.combo |> List.head of
-                    Just ( _, ( coolDown, Nothing ) ) ->
-                        if dt < coolDown then
-                            progressBar "red" (dt / coolDown)
-                        else
-                            progressBar "green" 1
+                    Just (Wait timer) ->
+                        let
+                            coolDown =
+                                timer.coolDown
+                        in
+                            case timer.window of
+                                Just window ->
+                                    if dt < coolDown then
+                                        progressBar "red" (dt / coolDown)
+                                    else if (dt >= coolDown) && (dt < coolDown + window) then
+                                        progressBar "green" (1 - (dt - coolDown) / window)
+                                    else
+                                        progressBar "red" 0
 
-                    Just ( _, ( coolDown, Just window ) ) ->
-                        if dt < coolDown then
-                            progressBar "red" (dt / coolDown)
-                        else if (dt >= coolDown) && (dt < coolDown + window) then
-                            progressBar "green" (1 - (dt - coolDown) / window)
-                        else
-                            progressBar "red" 0
+                                Nothing ->
+                                    if dt < coolDown then
+                                        progressBar "red" (dt / coolDown)
+                                    else
+                                        progressBar "green" 1
 
                     _ ->
                         Html.div [] []
