@@ -9,16 +9,21 @@ module Agenda
         , try
         , fail
         , succeed
+        , tell
         , (>>=)
         , andThen
-        , lazy
-        , tell
         , (>>>)
         , (>=>)
         , map
         , map2
         , (|=)
         , oneOf
+        , (<+>)
+        , succeed2
+        , succeed3
+        , succeed4
+        , succeed5
+        , lazy
         , zeroOrMore
         , zeroOrMoreWithState
         , addSucceedMsg
@@ -41,7 +46,7 @@ module Agenda
 @docs map, map2, (|=)
 
 ## Complex Agendas
-@docs oneOf, lazy, zeroOrMore, addSucceedMsg, zeroOrMoreWithState
+@docs oneOf, (<+>), succeed2, succeed3, succeed4, succeed5, lazy, zeroOrMore, addSucceedMsg, zeroOrMoreWithState
 -}
 
 
@@ -132,8 +137,8 @@ run agenda msg =
         Error ->
             fail
 
-        Result _ a ->
-            fail
+        Result states a ->
+            addStates states (succeed a)
 
 
 {-| Run all `msg`'s in the list.
@@ -331,6 +336,105 @@ oneOf agendas =
 
                             _ ->
                                 oneOf nextAgendas
+
+
+{-| Try both agendas simultanously.  This succeeds, when both agendas
+have succeeded.  Note that this operator is left-associative, i.e.
+`Agenda s msg a` is tried first.  You can also chain these together,
+like
+
+    chain : Agenda s msg ( ( a, b ), c )
+    chain =
+        agendaA <+> agendaB <+> agendaC
+-}
+(<+>) : Agenda s msg a -> Agenda s msg b -> Agenda s msg ( a, b )
+(<+>) agendaA agendaB =
+    try <|
+        \msg ->
+            let
+                nextA =
+                    run agendaA msg
+
+                nextB =
+                    run agendaB msg
+            in
+                case ( nextA, nextB ) of
+                    ( Error, Error ) ->
+                        fail
+
+                    ( Error, _ ) ->
+                        agendaA <+> nextB
+
+                    ( _, Error ) ->
+                        nextA <+> agendaB
+
+                    ( Result statesA a, Result statesB b ) ->
+                        succeed ( a, b )
+                            |> addStates statesA
+                            |> addStates statesB
+
+                    ( _, _ ) ->
+                        nextA <+> nextB
+infixl 6 <+>
+
+
+{-| Helper function, to be used with the `<+>` operator:
+
+    chain : Agenda s msg c
+    chain =
+        succeed2 f
+            |= (agendaA <+> agendaB)
+
+
+    f : a -> b -> c
+
+Note that you do not need to use the parentheses, since `<+>` binds
+tighter then `<|=>`.
+-}
+succeed2 : (a -> b -> c) -> Agenda s msg (( a, b ) -> c)
+succeed2 f =
+    succeed (apply2 f)
+
+
+{-|
+-}
+succeed3 : (a -> b -> c -> d) -> Agenda s msg (( ( a, b ), c ) -> d)
+succeed3 f =
+    succeed (apply3 f)
+
+
+{-|
+-}
+succeed4 : (a -> b -> c -> d -> e) -> Agenda s msg (( ( ( a, b ), c ), d ) -> e)
+succeed4 f =
+    succeed (apply4 f)
+
+
+{-|
+-}
+succeed5 : (a -> b -> c -> d -> e -> f) -> Agenda s msg (( ( ( ( a, b ), c ), d ), e ) -> f)
+succeed5 f =
+    succeed (apply5 f)
+
+
+apply2 : (a -> b -> c) -> ( a, b ) -> c
+apply2 f ( a, b ) =
+    (apply f a) b
+
+
+apply3 : (a -> b -> c -> d) -> ( ( a, b ), c ) -> d
+apply3 f ( p, c ) =
+    (apply2 f p) c
+
+
+apply4 : (a -> b -> c -> d -> e) -> ( ( ( a, b ), c ), d ) -> e
+apply4 f ( p, d ) =
+    (apply3 f p) d
+
+
+apply5 : (a -> b -> c -> d -> e -> f) -> ( ( ( ( a, b ), c ), d ), e ) -> f
+apply5 f ( p, e ) =
+    (apply4 f p) e
 
 
 {-| Repeat the given agenda untill the succeedMsg is sent.
