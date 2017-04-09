@@ -285,6 +285,7 @@ map2 func agendaA agendaB =
 (|=) : Agenda s msg (a -> b) -> Agenda s msg a -> Agenda s msg b
 (|=) func arg =
     map2 apply func arg
+infixl 5 |=
 
 
 apply : (a -> b) -> a -> b
