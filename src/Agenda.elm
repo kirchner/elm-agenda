@@ -405,7 +405,7 @@ infixl 6 <+>
     f : a -> b -> c
 
 Note that you do not need to use the parentheses, since `<+>` binds
-tighter then `<|=>`.
+tighter then `|=`.
 -}
 succeed2 : (a -> b -> c) -> Agenda s msg (( a, b ) -> c)
 succeed2 f =
