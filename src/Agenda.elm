@@ -349,32 +349,48 @@ like
 -}
 (<+>) : Agenda s msg a -> Agenda s msg b -> Agenda s msg ( a, b )
 (<+>) agendaA agendaB =
-    try <|
-        \msg ->
-            let
-                nextA =
-                    run agendaA msg
+    case ( agendaA, agendaB ) of
+        ( Error, _ ) ->
+            fail
 
-                nextB =
-                    run agendaB msg
-            in
-                case ( nextA, nextB ) of
-                    ( Error, Error ) ->
-                        fail
+        ( _, Error ) ->
+            fail
 
-                    ( Error, _ ) ->
-                        agendaA <+> nextB
+        ( Result statesA a, _ ) ->
+            succeed (\b -> ( a, b ))
+                |= addStates statesA agendaB
 
-                    ( _, Error ) ->
-                        nextA <+> agendaB
+        ( _, Result statesB b ) ->
+            succeed (\a -> ( a, b ))
+                |= addStates statesB agendaA
 
-                    ( Result statesA a, Result statesB b ) ->
-                        succeed ( a, b )
-                            |> addStates statesA
-                            |> addStates statesB
+        _ ->
+            try <|
+                \msg ->
+                    let
+                        nextA =
+                            run agendaA msg
 
-                    ( _, _ ) ->
-                        nextA <+> nextB
+                        nextB =
+                            run agendaB msg
+                    in
+                        case ( nextA, nextB ) of
+                            ( Error, Error ) ->
+                                fail
+
+                            ( Result statesA a, Result statesB b ) ->
+                                succeed ( a, b )
+                                    |> addStates statesA
+                                    |> addStates statesB
+
+                            ( Error, _ ) ->
+                                agendaA <+> nextB
+
+                            ( _, Error ) ->
+                                nextA <+> agendaB
+
+                            ( _, _ ) ->
+                                nextA <+> nextB
 infixl 6 <+>
 
 
