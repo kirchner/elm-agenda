@@ -2,7 +2,7 @@
     "version": "1.0.0",
     "summary": "Convenient way of handling chains of user actions",
     "repository": "https://github.com/kirchner/elm-agenda.git",
-    "license": "Apache Licens, version 2.0",
+    "license": "Apache License, version 2.0",
     "source-directories": [
         "src"
     ],
